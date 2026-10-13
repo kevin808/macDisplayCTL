@@ -53,9 +53,8 @@ static NSString *bootID(void) {
 }
 
 static NSString *cachePath(void) {
-    // Preserve display identities, arrangements, and recovery settings on upgrade.
     return [NSHomeDirectory() stringByAppendingPathComponent:
-            @"Library/Application Support/displayctl/displays.json"];
+            @"Library/Application Support/macDisplayCtl/displays.json"];
 }
 
 static NSString *displayUUID(CGDirectDisplayID display) {

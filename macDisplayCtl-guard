@@ -1,13 +1,12 @@
 #!/bin/sh
 set -eu
 task_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-# Retain data paths and service identity; update the installed executable name.
-task_support="$HOME/Library/Application Support/displayctl"
-task_plist="$HOME/Library/LaunchAgents/local.displayctl.guard.plist"
+task_support="$HOME/Library/Application Support/macDisplayCtl"
+task_plist="$HOME/Library/LaunchAgents/local.macDisplayCtl.guard.plist"
 task_domain="gui/$(id -u)"
-task_label="local.displayctl.guard"
+task_label="local.macDisplayCtl.guard"
 task_service="$task_domain/$task_label"
-task_log="$HOME/Library/Logs/displayctl-guard.log"
+task_log="$HOME/Library/Logs/macDisplayCtl-guard.log"
 MACDISPLAYCTL_LANGUAGE=$("$task_dir/macDisplayCtl" language)
 export MACDISPLAYCTL_LANGUAGE
 message() {
@@ -34,8 +33,6 @@ case "${1-status}" in
         fi
         if [ -f "$task_support/macDisplayCtl" ]; then
             cp "$task_support/macDisplayCtl" "$task_support/macDisplayCtl.backup"
-        elif [ -f "$task_support/displayctl" ]; then
-            cp "$task_support/displayctl" "$task_support/displayctl.backup"
         fi
         if [ -f "$task_dir/build/macDisplayCtl" ]; then
             cp "$task_dir/build/macDisplayCtl" "$task_support/macDisplayCtl.new"
@@ -49,7 +46,7 @@ case "${1-status}" in
 import os, plistlib, sys
 path, binary, log = sys.argv[1:]
 value = {
-    'Label': 'local.displayctl.guard',
+    'Label': 'local.macDisplayCtl.guard',
     'AssociatedBundleIdentifiers': ['com.github.kevin808.macDisplayCtl'],
     'ProgramArguments': [binary, 'watch'],
     'RunAtLoad': True,
@@ -86,10 +83,6 @@ with open(sys.argv[1], 'a+') as lock:
 PY
         launchctl enable "$task_service"
         launchctl bootstrap "$task_domain" "$task_plist"
-        # The previous executable is retained as a backup during migration.
-        if [ -f "$task_support/displayctl" ]; then
-            mv "$task_support/displayctl" "$task_support/displayctl.backup"
-        fi
         message '断开外屏后自动点亮内屏已启用，并设为登录时启动。\n日志：%s\n' 'Automatic built-in screen recovery after external disconnection enabled, with launch at login.\nLog: %s\n' "$task_log"
         ;;
     stop)

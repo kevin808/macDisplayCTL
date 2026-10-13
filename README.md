@@ -129,14 +129,15 @@ These paths are relative to the current user's home directory:
 
 | Path | Purpose |
 | --- | --- |
-| `~/Library/Application Support/displayctl/macDisplayCtl` | Installed background executable |
-| `~/Library/Application Support/displayctl/displays.json` | Display identity cache |
-| `~/Library/Application Support/displayctl/guard-state.json` | Built-in display preference and pending recovery state |
-| `~/Library/Application Support/displayctl/builtin-intent.json` | Explicit built-in display choices made with this tool |
-| `~/Library/LaunchAgents/local.displayctl.guard.plist` | User launch agent |
-| `~/Library/Logs/displayctl-guard.log` | Monitor log |
+| `~/Library/Application Support/macDisplayCtl/macDisplayCtl` | Installed background executable |
+| `~/Library/Application Support/macDisplayCtl/displays.json` | Display identity cache |
+| `~/Library/Application Support/macDisplayCtl/guard-state.json` | Built-in display preference and pending recovery state |
+| `~/Library/Application Support/macDisplayCtl/builtin-intent.json` | Explicit built-in display choices made with this tool |
+| `~/Library/Application Support/macDisplayCtl/extended-layouts.json` | Saved extended display positions and main display |
+| `~/Library/LaunchAgents/local.macDisplayCtl.guard.plist` | User launch agent |
+| `~/Library/Logs/macDisplayCtl-guard.log` | Monitor log |
 
-The installed background executable is named `macDisplayCtl` and is associated with the app for macOS background activity. Data paths and the launch agent identifier retain their legacy names so upgrades preserve saved arrangements and recovery preferences. Project files and bundled executables use `macDisplayCtl`.
+The executable, data directory, log, and launch agent use `macDisplayCtl`. The monitor is associated with the app for macOS background activity. Legacy `displayctl` data is not imported.
 
 The display cache and preferences are valid for the current system boot. Preferences survive monitor restarts and updates, and are learned again after a system reboot. Display UUIDs are used when available to handle numeric ID changes.
 

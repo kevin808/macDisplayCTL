@@ -129,14 +129,15 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 
 | パス | 用途 |
 | --- | --- |
-| `~/Library/Application Support/displayctl/macDisplayCtl` | インストール済み監視プログラム |
-| `~/Library/Application Support/displayctl/displays.json` | ディスプレイ識別情報のキャッシュ |
-| `~/Library/Application Support/displayctl/guard-state.json` | 内蔵の設定と復元待ち状態 |
-| `~/Library/Application Support/displayctl/builtin-intent.json` | 本ツールで明示した内蔵の選択 |
-| `~/Library/LaunchAgents/local.displayctl.guard.plist` | ユーザー用 LaunchAgent |
-| `~/Library/Logs/displayctl-guard.log` | 監視ログ |
+| `~/Library/Application Support/macDisplayCtl/macDisplayCtl` | インストール済み監視プログラム |
+| `~/Library/Application Support/macDisplayCtl/displays.json` | ディスプレイ識別情報のキャッシュ |
+| `~/Library/Application Support/macDisplayCtl/guard-state.json` | 内蔵の設定と復元待ち状態 |
+| `~/Library/Application Support/macDisplayCtl/builtin-intent.json` | 本ツールで明示した内蔵の選択 |
+| `~/Library/Application Support/macDisplayCtl/extended-layouts.json` | 拡張時の画面配置とメインディスプレイ |
+| `~/Library/LaunchAgents/local.macDisplayCtl.guard.plist` | ユーザー用 LaunchAgent |
+| `~/Library/Logs/macDisplayCtl-guard.log` | 監視ログ |
 
-更新後も画面配置と復帰設定を維持するため、インストール済み監視プログラムは `macDisplayCtl` という名前で、macOS のバックグラウンド活動でアプリに関連付けられます。データパスと LaunchAgent の識別子は従来の名前を使用します。プロジェクトファイルと同梱実行ファイルは `macDisplayCtl` に統一しています。
+実行ファイル、データディレクトリ、ログ、LaunchAgent は `macDisplayCtl` に統一し、macOS のバックグラウンド活動でアプリに関連付けます。旧版の `displayctl` データは取り込みません。
 
 キャッシュと記憶した設定は現在のシステム起動中に有効です。監視の再起動・更新後も設定を引き継ぎ、システム再起動後は再学習します。取得できる場合は UUID を使い、数値 ID が変わっても同じディスプレイを識別します。
 

@@ -129,14 +129,15 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 
 | 路径 | 用途 |
 | --- | --- |
-| `~/Library/Application Support/displayctl/macDisplayCtl` | 已安装的后台程序 |
-| `~/Library/Application Support/displayctl/displays.json` | 显示器身份缓存 |
-| `~/Library/Application Support/displayctl/guard-state.json` | 内屏偏好与待恢复状态 |
-| `~/Library/Application Support/displayctl/builtin-intent.json` | 通过本工具明确设置的内屏选择 |
-| `~/Library/LaunchAgents/local.displayctl.guard.plist` | 用户级启动项 |
-| `~/Library/Logs/displayctl-guard.log` | 后台监控日志 |
+| `~/Library/Application Support/macDisplayCtl/macDisplayCtl` | 已安装的后台程序 |
+| `~/Library/Application Support/macDisplayCtl/displays.json` | 显示器身份缓存 |
+| `~/Library/Application Support/macDisplayCtl/guard-state.json` | 内屏偏好与待恢复状态 |
+| `~/Library/Application Support/macDisplayCtl/builtin-intent.json` | 通过本工具明确设置的内屏选择 |
+| `~/Library/Application Support/macDisplayCtl/extended-layouts.json` | 扩展排列与主屏幕记忆 |
+| `~/Library/LaunchAgents/local.macDisplayCtl.guard.plist` | 用户级启动项 |
+| `~/Library/Logs/macDisplayCtl-guard.log` | 后台监控日志 |
 
-已安装的后台程序名为 `macDisplayCtl`，并关联到应用的 macOS 后台活动。数据路径和启动项标识沿用旧名称，以便升级后保留屏幕排列与恢复偏好；项目文件和应用内置程序统一使用 `macDisplayCtl`。
+后台程序、数据目录、日志和启动项统一使用 `macDisplayCtl`，并关联到应用的 macOS 后台活动。旧版 `displayctl` 数据不会导入。
 
 显示器缓存与状态记忆在本次系统启动期间有效。偏好可在监控重启或更新后继续衔接，系统重启后重新学习；能读取显示器 UUID 时，会用它对应显示器，以适应数字 ID 变化。
 

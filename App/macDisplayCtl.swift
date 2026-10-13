@@ -180,7 +180,7 @@ final class ScreenModel: ObservableObject {
         let result = await Backend.run(["status"], executable: "macDisplayCtl-guard")
         guardRunning = result.output.contains("state = running")
         let installed = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/displayctl/macDisplayCtl")
+            .appendingPathComponent("Library/Application Support/macDisplayCtl/macDisplayCtl")
         let bundled = Backend.resources.appendingPathComponent("macDisplayCtl")
         let helperChanged = (try? Data(contentsOf: installed)) != (try? Data(contentsOf: bundled))
         let defaults = UserDefaults.standard
