@@ -13,7 +13,7 @@ for language in ("en", "zh-Hans"):
     path = resources / f"{language}.lproj/Localizable.strings"
     catalogs[language] = dict(re.findall(r'^"((?:\\.|[^"\\])*)" = "((?:\\.|[^"\\])*)";', path.read_text(), re.M))
 assert catalogs["en"].keys() == catalogs["zh-Hans"].keys(), "Translation keys differ"
-used = set(re.findall(r'L10n\.(?:text|format)\("([^"]+)"', (root / "App/ScreenSwitch.swift").read_text()))
+used = set(re.findall(r'L10n\.(?:text|format)\("([^"]+)"', (root / "App/macDisplayCtl.swift").read_text()))
 assert used <= catalogs["en"].keys(), f"Missing translations: {used - catalogs['en'].keys()}"
 for key, english in catalogs["en"].items():
     assert re.findall(r"%[@dufs]", english) == re.findall(r"%[@dufs]", catalogs["zh-Hans"][key]), key
@@ -24,7 +24,7 @@ for language in ("en", "zh-Hans", "fr"):
     environment = dict(os.environ, MACDISPLAYCTL_LANGUAGE=language)
     expected = "zh-Hans" if language.startswith("zh") else "en"
     def run(*args):
-        return subprocess.run([str(root / "displayctl"), *args], env=environment,
+        return subprocess.run([str(root / "macDisplayCtl"), *args], env=environment,
                               capture_output=True, text=True, check=False)
     result = run("language")
     assert result.returncode == 0 and result.stdout.strip() == expected

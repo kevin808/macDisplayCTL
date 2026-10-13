@@ -11,7 +11,7 @@
 
 </div>
 
-macDisplayCtl 是一个 macOS 显示器管理工具，提供原生 SwiftUI/AppKit 应用 **屏幕切换**（`macDisplayCtl.app`） 和命令行工具 `displayctl`。支持四种投影模式、单独启停显示器，以及在外屏断开时恢复内置屏的后台监控。应用首次启动时默认启用此功能。
+macDisplayCtl 是一个 macOS 显示器管理工具，提供原生 SwiftUI/AppKit 应用 **屏幕切换**（`macDisplayCtl.app`） 和命令行工具 `macDisplayCtl`。支持四种投影模式、单独启停显示器，以及在外屏断开时恢复内置屏的后台监控。应用首次启动时默认启用此功能。
 
 ## 主要功能
 
@@ -46,7 +46,7 @@ open "build/macDisplayCtl.app"
 
 应用生成在 `build/macDisplayCtl.app`，可复制到 `/Applications`。如果 macOS 阻止打开，可前往**系统设置 > 隐私与安全性**允许打开。
 
-命令行入口 `./displayctl` 会在首次使用时自动编译，并在 `displayctl.m` 更新后重新构建。也可以双击 [`macDisplayCtl.command`](macDisplayCtl.command)，通过跟随系统语言的交互菜单操作。
+命令行入口 `./macDisplayCtl` 会在首次使用时自动编译，并在 `macDisplayCtl.m` 更新后重新构建。也可以双击 [`macDisplayCtl.command`](macDisplayCtl.command)，通过跟随系统语言的交互菜单操作。
 
 ## 应用使用方法
 
@@ -74,8 +74,8 @@ open "build/macDisplayCtl.app"
 独立命令行工具和交互菜单跟随系统语言，也可通过 `MACDISPLAYCTL_LANGUAGE` 临时指定：
 
 ```sh
-MACDISPLAYCTL_LANGUAGE=en ./displayctl --help
-MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
+MACDISPLAYCTL_LANGUAGE=en ./macDisplayCtl --help
+MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 ```
 
 ## 命令行用法
@@ -83,45 +83,45 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
 在仓库目录中执行以下命令。数字 ID 仅为示例，请先用 `list` 查询；ID 可能在重启或重新接入后变化。
 
 ```sh
-./displayctl list                         # 查看显示器与 ID
-./displayctl list --json                  # 输出 JSON
-./displayctl off builtin                  # 停用内置屏
-./displayctl on builtin                   # 启用内置屏
-./displayctl off external                 # 停用所有外置屏
-./displayctl on external                  # 启用所有外置屏
-./displayctl toggle 2                     # 切换 ID 为 2 的显示器
-./displayctl on all                       # 启用全部可识别显示器
-./displayctl off builtin --dry-run        # 只预览，不改变屏幕
-./displayctl project internal             # 仅电脑屏幕
-./displayctl project duplicate 3          # 与 ID 为 3 的外屏复制
-./displayctl project extend 3             # 与 ID 为 3 的外屏扩展
-./displayctl project external 3           # 仅 ID 为 3 的外屏
-./displayctl project extend --dry-run     # 预览投影计划
-./displayctl --help
+./macDisplayCtl list                         # 查看显示器与 ID
+./macDisplayCtl list --json                  # 输出 JSON
+./macDisplayCtl off builtin                  # 停用内置屏
+./macDisplayCtl on builtin                   # 启用内置屏
+./macDisplayCtl off external                 # 停用所有外置屏
+./macDisplayCtl on external                  # 启用所有外置屏
+./macDisplayCtl toggle 2                     # 切换 ID 为 2 的显示器
+./macDisplayCtl on all                       # 启用全部可识别显示器
+./macDisplayCtl off builtin --dry-run        # 只预览，不改变屏幕
+./macDisplayCtl project internal             # 仅电脑屏幕
+./macDisplayCtl project duplicate 3          # 与 ID 为 3 的外屏复制
+./macDisplayCtl project extend 3             # 与 ID 为 3 的外屏扩展
+./macDisplayCtl project external 3           # 仅 ID 为 3 的外屏
+./macDisplayCtl project extend --dry-run     # 预览投影计划
+./macDisplayCtl --help
 ```
 
-默认拒绝停用最后一块已启用的非虚拟屏。同一次操作中计划启用的屏幕不作为当前可用的后备屏。确实需要全关时，可显式执行 `./displayctl off all --allow-all-off`。若要保持所有屏幕停用，请先停止恢复监控，否则监控可能在开盖时恢复内置屏。
+默认拒绝停用最后一块已启用的非虚拟屏。同一次操作中计划启用的屏幕不作为当前可用的后备屏。确实需要全关时，可显式执行 `./macDisplayCtl off all --allow-all-off`。若要保持所有屏幕停用，请先停止恢复监控，否则监控可能在开盖时恢复内置屏。
 
 返回码：`0` 表示成功、无需改变或预览成功；`1` 表示接口或事务失败；`2` 表示参数无效或操作保护拒绝；`3` 表示事务已提交，但两秒内未观察到预期状态。
 
 ## 自动恢复与状态记忆
 
 ```sh
-./displayctl guard status                 # 查看监控状态
-./displayctl guard start                  # 安装/更新、启动，并设为登录时启动
-./displayctl guard stop                   # 停止，同时关闭登录自动启动
-./displayctl watch --dry-run --once        # 只读检查屏幕、盖子和恢复决策
+./macDisplayCtl guard status                 # 查看监控状态
+./macDisplayCtl guard start                  # 安装/更新、启动，并设为登录时启动
+./macDisplayCtl guard stop                   # 停止，同时关闭登录自动启动
+./macDisplayCtl watch --dry-run --once        # 只读检查屏幕、盖子和恢复决策
 ```
 
 最后一块可用非虚拟屏消失、内置屏也停用时，监控会等待状态持续至少一秒，再临时启用内置屏。恢复要求笔记本已开盖；合盖或无法读取盖子状态时等待开盖。
 
 实体外屏重新接入并稳定至少两秒后，恢复断开前的内屏状态。恢复内屏停用前会再次确认仍有可用实体外屏。监控不会停用外屏。
 
-初始偏好根据外屏连接时的内屏状态学习，之后在外屏连接且开盖时观察用户的内屏启停选择。断开期间的兜底启用不会覆盖原偏好。若希望接回外屏后保持内屏启用，可在断开期间显式执行 `./displayctl on builtin`，即使内屏已经启用也有效。断开期间通过其他应用更改状态，无法可靠地区分用户选择与系统自动恢复。
+初始偏好根据外屏连接时的内屏状态学习，之后在外屏连接且开盖时观察用户的内屏启停选择。断开期间的兜底启用不会覆盖原偏好。若希望接回外屏后保持内屏启用，可在断开期间显式执行 `./macDisplayCtl on builtin`，即使内屏已经启用也有效。断开期间通过其他应用更改状态，无法可靠地区分用户选择与系统自动恢复。
 
 监控监听显示配置与开盖事件，并每五秒补查一次。兜底恢复失败后至少间隔十秒重试，每三次尝试后冷却六十秒；重接状态恢复至少间隔十秒重试。长时间休眠后重新等待状态稳定。显示切换与监控共用操作锁。
 
-无需 `sudo`，也不使用系统级启动项。更新源码后执行 `./displayctl guard start` 同步更新已安装监控。安装时保留已有程序和启动项配置的 `.backup` 副本。
+无需 `sudo`，也不使用系统级启动项。更新源码后执行 `./macDisplayCtl guard start` 同步更新已安装监控。安装时保留已有程序和启动项配置的 `.backup` 副本。
 
 ## 本地数据与日志
 
@@ -135,6 +135,8 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
 | `~/Library/Application Support/displayctl/builtin-intent.json` | 通过本工具明确设置的内屏选择 |
 | `~/Library/LaunchAgents/local.displayctl.guard.plist` | 用户级启动项 |
 | `~/Library/Logs/displayctl-guard.log` | 后台监控日志 |
+
+已安装的数据路径和启动项标识沿用旧名称，以便升级后保留屏幕排列与恢复偏好；项目文件和应用内置程序统一使用 `macDisplayCtl`。
 
 显示器缓存与状态记忆在本次系统启动期间有效。偏好可在监控重启或更新后继续衔接，系统重启后重新学习；能读取显示器 UUID 时，会用它对应显示器，以适应数字 ID 变化。
 
@@ -151,10 +153,10 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
 
 | 文件 | 用途 |
 | --- | --- |
-| [`displayctl.m`](displayctl.m) | Objective-C 显示控制、监控与规划测试 |
-| [`displayctl`](displayctl) | 自动编译入口 |
-| [`guardctl`](guardctl) | 用户级启动项管理 |
-| [`App/ScreenSwitch.swift`](App/ScreenSwitch.swift) | SwiftUI/AppKit 面板 |
+| [`macDisplayCtl.m`](macDisplayCtl.m) | Objective-C 显示控制、监控与规划测试 |
+| [`macDisplayCtl`](macDisplayCtl) | 自动编译入口 |
+| [`macDisplayCtl-guard`](macDisplayCtl-guard) | 用户级启动项管理 |
+| [`App/macDisplayCtl.swift`](App/macDisplayCtl.swift) | SwiftUI/AppKit 面板 |
 | [`App/Localization.swift`](App/Localization.swift)、[`App/Resources`](App/Resources) | 语言选择与应用本地化资源 |
 | [`tests/localization.py`](tests/localization.py) | 翻译与命令行语言回归检查 |
 | [`App/MakeIcon.swift`](App/MakeIcon.swift) | 应用图标生成 |

@@ -11,7 +11,7 @@ English | [Simplified Chinese](README_CN.md) | [Japanese](README_JA.md)
 
 </div>
 
-macDisplayCtl is a macOS display utility with a native SwiftUI/AppKit app, **macDisplayCtl.app**, and a command-line tool, `displayctl`. It provides four projection modes, individual display controls, and a background monitor that restores the built-in display when external displays disconnect. The app enables it by default on first launch.
+macDisplayCtl is a macOS display utility with a native SwiftUI/AppKit app, **macDisplayCtl.app**, and a command-line tool, `macDisplayCtl`. It provides four projection modes, individual display controls, and a background monitor that restores the built-in display when external displays disconnect. The app enables it by default on first launch.
 
 ## Features
 
@@ -46,7 +46,7 @@ open "build/macDisplayCtl.app"
 
 The app is generated at `build/macDisplayCtl.app` and can be copied to `/Applications`. If macOS blocks it, allow it in **System Settings > Privacy & Security**.
 
-For command-line use, the `./displayctl` launcher compiles the helper on first use and rebuilds it when `displayctl.m` changes. You can also double-click [`macDisplayCtl.command`](macDisplayCtl.command) for an interactive menu in the same language.
+For command-line use, the `./macDisplayCtl` launcher compiles the helper on first use and rebuilds it when `macDisplayCtl.m` changes. You can also double-click [`macDisplayCtl.command`](macDisplayCtl.command) for an interactive menu in the same language.
 
 ## App usage
 
@@ -74,8 +74,8 @@ The app follows the macOS preferred language, including per-app settings in **Sy
 The standalone command-line tool and interactive menu follow the system language. To override it for a command, set `MACDISPLAYCTL_LANGUAGE`:
 
 ```sh
-MACDISPLAYCTL_LANGUAGE=en ./displayctl --help
-MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
+MACDISPLAYCTL_LANGUAGE=en ./macDisplayCtl --help
+MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 ```
 
 ## Command-line usage
@@ -83,45 +83,45 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
 Run these commands from the repository directory. Replace example numeric IDs with IDs from `list`; they may change after a reboot or reconnection.
 
 ```sh
-./displayctl list                         # List displays and IDs
-./displayctl list --json                  # JSON output
-./displayctl off builtin                  # Disable the built-in display
-./displayctl on builtin                   # Enable the built-in display
-./displayctl off external                 # Disable all external displays
-./displayctl on external                  # Enable all external displays
-./displayctl toggle 2                     # Toggle display ID 2
-./displayctl on all                       # Enable all recognized displays
-./displayctl off builtin --dry-run        # Preview without changing displays
-./displayctl project internal             # Built-in only
-./displayctl project duplicate 3          # Mirror to external display ID 3
-./displayctl project extend 3             # Extend to external display ID 3
-./displayctl project external 3           # External display ID 3 only
-./displayctl project extend --dry-run     # Preview the projection plan
-./displayctl --help
+./macDisplayCtl list                         # List displays and IDs
+./macDisplayCtl list --json                  # JSON output
+./macDisplayCtl off builtin                  # Disable the built-in display
+./macDisplayCtl on builtin                   # Enable the built-in display
+./macDisplayCtl off external                 # Disable all external displays
+./macDisplayCtl on external                  # Enable all external displays
+./macDisplayCtl toggle 2                     # Toggle display ID 2
+./macDisplayCtl on all                       # Enable all recognized displays
+./macDisplayCtl off builtin --dry-run        # Preview without changing displays
+./macDisplayCtl project internal             # Built-in only
+./macDisplayCtl project duplicate 3          # Mirror to external display ID 3
+./macDisplayCtl project extend 3             # Extend to external display ID 3
+./macDisplayCtl project external 3           # External display ID 3 only
+./macDisplayCtl project extend --dry-run     # Preview the projection plan
+./macDisplayCtl --help
 ```
 
-By default, the tool refuses to disable the last enabled non-virtual display. A display scheduled to be enabled in the same operation does not count as an available fallback. To explicitly allow all displays to be disabled, use `./displayctl off all --allow-all-off`. Stop the recovery monitor first if all displays should remain disabled; otherwise it can restore the built-in display while the lid is open.
+By default, the tool refuses to disable the last enabled non-virtual display. A display scheduled to be enabled in the same operation does not count as an available fallback. To explicitly allow all displays to be disabled, use `./macDisplayCtl off all --allow-all-off`. Stop the recovery monitor first if all displays should remain disabled; otherwise it can restore the built-in display while the lid is open.
 
 Exit codes: `0` means success, no change needed, or a successful preview; `1` means an API or transaction failure; `2` means invalid arguments or a protection refusal; `3` means the transaction was committed but the expected state was not observed within two seconds.
 
 ## Recovery monitor
 
 ```sh
-./displayctl guard status                 # Show monitor status
-./displayctl guard start                  # Install/update, start, and enable at login
-./displayctl guard stop                   # Stop and disable launch at login
-./displayctl watch --dry-run --once        # Inspect displays, lid, and recovery decisions
+./macDisplayCtl guard status                 # Show monitor status
+./macDisplayCtl guard start                  # Install/update, start, and enable at login
+./macDisplayCtl guard stop                   # Stop and disable launch at login
+./macDisplayCtl watch --dry-run --once        # Inspect displays, lid, and recovery decisions
 ```
 
 When the last usable non-virtual display disappears and the built-in display is disabled, the monitor waits for that state to persist for at least one second before temporarily enabling the built-in display. Recovery requires an open lid; a closed or unknown lid state defers recovery.
 
 After a physical external display reconnects and remains stable for at least two seconds, the monitor restores the previous built-in display state. It checks again that a usable physical external display exists before disabling the built-in display. The monitor never disables external displays.
 
-The initial preference is learned while an external display is connected. Later choices are observed while an external display is connected and the lid is open. Temporary recovery does not overwrite that preference. To explicitly keep the built-in display enabled after reconnection, run `./displayctl on builtin` while disconnected, even if it is already enabled. Changes made through other apps during disconnection cannot reliably be distinguished from automatic system recovery.
+The initial preference is learned while an external display is connected. Later choices are observed while an external display is connected and the lid is open. Temporary recovery does not overwrite that preference. To explicitly keep the built-in display enabled after reconnection, run `./macDisplayCtl on builtin` while disconnected, even if it is already enabled. Changes made through other apps during disconnection cannot reliably be distinguished from automatic system recovery.
 
 The monitor listens for display and lid events and checks every five seconds. Fallback retries are at least ten seconds apart, with a sixty-second cooldown after every three attempts. Reconnection restoration retries are at least ten seconds apart. After a long sleep, it waits for stability again. Display changes and the monitor share an operation lock.
 
-No `sudo` or system-wide launch agent is required. After updating the source, run `./displayctl guard start` to update the installed monitor. Installation keeps `.backup` copies of the previous executable and launch agent configuration.
+No `sudo` or system-wide launch agent is required. After updating the source, run `./macDisplayCtl guard start` to update the installed monitor. Installation keeps `.backup` copies of the previous executable and launch agent configuration.
 
 ## Local data and logs
 
@@ -135,6 +135,8 @@ These paths are relative to the current user's home directory:
 | `~/Library/Application Support/displayctl/builtin-intent.json` | Explicit built-in display choices made with this tool |
 | `~/Library/LaunchAgents/local.displayctl.guard.plist` | User launch agent |
 | `~/Library/Logs/displayctl-guard.log` | Monitor log |
+
+Installed data paths and the launch agent identifier retain their legacy names so upgrades preserve saved arrangements and recovery preferences. Project files and bundled executables use `macDisplayCtl`.
 
 The display cache and preferences are valid for the current system boot. Preferences survive monitor restarts and updates, and are learned again after a system reboot. Display UUIDs are used when available to handle numeric ID changes.
 
@@ -151,10 +153,10 @@ The test script runs simulated command planning, recovery policy, reconnection m
 
 | File | Purpose |
 | --- | --- |
-| [`displayctl.m`](displayctl.m) | Objective-C display control, monitor, and planning tests |
-| [`displayctl`](displayctl) | Automatic compilation launcher |
-| [`guardctl`](guardctl) | User launch agent management |
-| [`App/ScreenSwitch.swift`](App/ScreenSwitch.swift) | SwiftUI/AppKit panel |
+| [`macDisplayCtl.m`](macDisplayCtl.m) | Objective-C display control, monitor, and planning tests |
+| [`macDisplayCtl`](macDisplayCtl) | Automatic compilation launcher |
+| [`macDisplayCtl-guard`](macDisplayCtl-guard) | User launch agent management |
+| [`App/macDisplayCtl.swift`](App/macDisplayCtl.swift) | SwiftUI/AppKit panel |
 | [`App/Localization.swift`](App/Localization.swift), [`App/Resources`](App/Resources) | Language selection and localized app resources |
 | [`tests/localization.py`](tests/localization.py) | Translation and CLI language regression checks |
 | [`App/MakeIcon.swift`](App/MakeIcon.swift) | App icon generation |

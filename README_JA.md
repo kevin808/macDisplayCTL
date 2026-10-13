@@ -11,7 +11,7 @@
 
 </div>
 
-macDisplayCtl は、SwiftUI/AppKit 製のネイティブアプリ **macDisplayCtl.app** とコマンドラインツール `displayctl` を備えた macOS 用ディスプレイ管理ツールです。4 つの投影モード、ディスプレイごとの有効化・無効化、および外部ディスプレイの切断時に内蔵ディスプレイを復帰させるバックグラウンド監視機能を提供します。アプリの初回起動時に自動的に有効になります。
+macDisplayCtl は、SwiftUI/AppKit 製のネイティブアプリ **macDisplayCtl.app** とコマンドラインツール `macDisplayCtl` を備えた macOS 用ディスプレイ管理ツールです。4 つの投影モード、ディスプレイごとの有効化・無効化、および外部ディスプレイの切断時に内蔵ディスプレイを復帰させるバックグラウンド監視機能を提供します。アプリの初回起動時に自動的に有効になります。
 
 ## 主な機能
 
@@ -46,7 +46,7 @@ open "build/macDisplayCtl.app"
 
 アプリは `build/macDisplayCtl.app` に生成され、`/Applications` にコピーできます。macOS が起動をブロックする場合は、**システム設定 > プライバシーとセキュリティ**で起動を許可してください。
 
-コマンドラインの `./displayctl` ランチャーは初回実行時にヘルパーをコンパイルし、`displayctl.m` の更新後に再ビルドします。[`macDisplayCtl.command`](macDisplayCtl.command) をダブルクリックすると、システム言語に従う対話メニューも使用できます。
+コマンドラインの `./macDisplayCtl` ランチャーは初回実行時にヘルパーをコンパイルし、`macDisplayCtl.m` の更新後に再ビルドします。[`macDisplayCtl.command`](macDisplayCtl.command) をダブルクリックすると、システム言語に従う対話メニューも使用できます。
 
 ## アプリの使い方
 
@@ -74,8 +74,8 @@ open "build/macDisplayCtl.app"
 単独のコマンドラインツールと対話メニューもシステム言語に従います。コマンドごとに指定する場合は `MACDISPLAYCTL_LANGUAGE` を使用します。
 
 ```sh
-MACDISPLAYCTL_LANGUAGE=en ./displayctl --help
-MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
+MACDISPLAYCTL_LANGUAGE=en ./macDisplayCtl --help
+MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 ```
 
 ## コマンドライン
@@ -83,45 +83,45 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
 リポジトリのディレクトリで実行してください。数値 ID は例です。再起動や再接続で変わることがあるため、`list` で確認した ID に置き換えてください。
 
 ```sh
-./displayctl list                         # ディスプレイと ID を表示
-./displayctl list --json                  # JSON 出力
-./displayctl off builtin                  # 内蔵を無効化
-./displayctl on builtin                   # 内蔵を有効化
-./displayctl off external                 # すべての外部を無効化
-./displayctl on external                  # すべての外部を有効化
-./displayctl toggle 2                     # ID 2 を切り替え
-./displayctl on all                       # 認識済みのすべてを有効化
-./displayctl off builtin --dry-run        # 変更せずにプレビュー
-./displayctl project internal             # 内蔵のみ
-./displayctl project duplicate 3          # 外部 ID 3 にミラーリング
-./displayctl project extend 3             # 外部 ID 3 に拡張
-./displayctl project external 3           # 外部 ID 3 のみ
-./displayctl project extend --dry-run     # 投影計画をプレビュー
-./displayctl --help
+./macDisplayCtl list                         # ディスプレイと ID を表示
+./macDisplayCtl list --json                  # JSON 出力
+./macDisplayCtl off builtin                  # 内蔵を無効化
+./macDisplayCtl on builtin                   # 内蔵を有効化
+./macDisplayCtl off external                 # すべての外部を無効化
+./macDisplayCtl on external                  # すべての外部を有効化
+./macDisplayCtl toggle 2                     # ID 2 を切り替え
+./macDisplayCtl on all                       # 認識済みのすべてを有効化
+./macDisplayCtl off builtin --dry-run        # 変更せずにプレビュー
+./macDisplayCtl project internal             # 内蔵のみ
+./macDisplayCtl project duplicate 3          # 外部 ID 3 にミラーリング
+./macDisplayCtl project extend 3             # 外部 ID 3 に拡張
+./macDisplayCtl project external 3           # 外部 ID 3 のみ
+./macDisplayCtl project extend --dry-run     # 投影計画をプレビュー
+./macDisplayCtl --help
 ```
 
-既定では、最後の有効な非仮想ディスプレイの無効化を拒否します。同じ操作で有効化を予定しているディスプレイは、現在利用可能な代替画面としては扱いません。すべてを無効化するには `./displayctl off all --allow-all-off` を明示的に使用します。無効な状態を維持する場合は、先に復帰監視を停止してください。監視中は、ふたが開いていると内蔵ディスプレイが復帰する場合があります。
+既定では、最後の有効な非仮想ディスプレイの無効化を拒否します。同じ操作で有効化を予定しているディスプレイは、現在利用可能な代替画面としては扱いません。すべてを無効化するには `./macDisplayCtl off all --allow-all-off` を明示的に使用します。無効な状態を維持する場合は、先に復帰監視を停止してください。監視中は、ふたが開いていると内蔵ディスプレイが復帰する場合があります。
 
 終了コード：`0` は成功・変更不要・プレビュー成功、`1` は API またはトランザクションの失敗、`2` は引数の誤りまたは保護による拒否、`3` は変更を確定したものの 2 秒以内に期待する状態を確認できなかったことを示します。
 
 ## 自動復帰と状態記憶
 
 ```sh
-./displayctl guard status                 # 監視の状態を確認
-./displayctl guard start                  # インストール/更新・起動・ログイン時起動を有効化
-./displayctl guard stop                   # 停止し、ログイン時起動を無効化
-./displayctl watch --dry-run --once        # 画面・ふた・復帰判断を読み取りのみで確認
+./macDisplayCtl guard status                 # 監視の状態を確認
+./macDisplayCtl guard start                  # インストール/更新・起動・ログイン時起動を有効化
+./macDisplayCtl guard stop                   # 停止し、ログイン時起動を無効化
+./macDisplayCtl watch --dry-run --once        # 画面・ふた・復帰判断を読み取りのみで確認
 ```
 
 最後の使用可能な非仮想ディスプレイがなくなり、内蔵も無効な場合、その状態が 1 秒以上続くのを待って内蔵ディスプレイを一時的に有効化します。復帰にはふたが開いている必要があり、閉じている場合や状態が不明な場合は待機します。
 
 物理的な外部ディスプレイが再接続され、2 秒以上安定すると、切断前の内蔵ディスプレイの状態に戻します。内蔵を無効化する直前に、使用可能な物理外部ディスプレイがあることを再確認します。監視は外部ディスプレイを無効化しません。
 
-初期設定は外部ディスプレイ接続中の内蔵の状態から学習し、その後は外部接続中かつふたが開いているときの選択を記憶します。一時的な復帰で設定を上書きすることはありません。再接続後も内蔵を有効にするには、切断中に `./displayctl on builtin` を明示的に実行してください。すでに有効な場合も適用されます。切断中に他のアプリで状態を変更した場合は、ユーザーの選択とシステムによる自動復帰を確実には区別できません。
+初期設定は外部ディスプレイ接続中の内蔵の状態から学習し、その後は外部接続中かつふたが開いているときの選択を記憶します。一時的な復帰で設定を上書きすることはありません。再接続後も内蔵を有効にするには、切断中に `./macDisplayCtl on builtin` を明示的に実行してください。すでに有効な場合も適用されます。切断中に他のアプリで状態を変更した場合は、ユーザーの選択とシステムによる自動復帰を確実には区別できません。
 
 監視はディスプレイ構成とふたのイベントを監視し、5 秒ごとにも確認します。一時復帰の再試行間隔は 10 秒以上で、3 回試すごとに 60 秒待機します。再接続時の状態復元も 10 秒以上の間隔で再試行します。長いスリープの後は改めて安定を待ちます。画面切り替えと監視は共通の操作ロックを使用します。
 
-`sudo` やシステム全体の起動項目は不要です。ソース更新後は `./displayctl guard start` でインストール済み監視を更新します。インストール時には以前の実行ファイルと起動設定の `.backup` を保存します。
+`sudo` やシステム全体の起動項目は不要です。ソース更新後は `./macDisplayCtl guard start` でインストール済み監視を更新します。インストール時には以前の実行ファイルと起動設定の `.backup` を保存します。
 
 ## ローカルデータとログ
 
@@ -135,6 +135,8 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
 | `~/Library/Application Support/displayctl/builtin-intent.json` | 本ツールで明示した内蔵の選択 |
 | `~/Library/LaunchAgents/local.displayctl.guard.plist` | ユーザー用 LaunchAgent |
 | `~/Library/Logs/displayctl-guard.log` | 監視ログ |
+
+更新後も画面配置と復帰設定を維持するため、インストール済みのデータパスと LaunchAgent の識別子は従来の名前を使用します。プロジェクトファイルと同梱実行ファイルは `macDisplayCtl` に統一しています。
 
 キャッシュと記憶した設定は現在のシステム起動中に有効です。監視の再起動・更新後も設定を引き継ぎ、システム再起動後は再学習します。取得できる場合は UUID を使い、数値 ID が変わっても同じディスプレイを識別します。
 
@@ -151,10 +153,10 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
 
 | ファイル | 用途 |
 | --- | --- |
-| [`displayctl.m`](displayctl.m) | Objective-C による画面制御・監視・計画テスト |
-| [`displayctl`](displayctl) | 自動コンパイル用ランチャー |
-| [`guardctl`](guardctl) | ユーザー用 LaunchAgent の管理 |
-| [`App/ScreenSwitch.swift`](App/ScreenSwitch.swift) | SwiftUI/AppKit パネル |
+| [`macDisplayCtl.m`](macDisplayCtl.m) | Objective-C による画面制御・監視・計画テスト |
+| [`macDisplayCtl`](macDisplayCtl) | 自動コンパイル用ランチャー |
+| [`macDisplayCtl-guard`](macDisplayCtl-guard) | ユーザー用 LaunchAgent の管理 |
+| [`App/macDisplayCtl.swift`](App/macDisplayCtl.swift) | SwiftUI/AppKit パネル |
 | [`App/Localization.swift`](App/Localization.swift)、[`App/Resources`](App/Resources) | 言語の選択とローカライズ用リソース |
 | [`tests/localization.py`](tests/localization.py) | 翻訳と CLI 言語の回帰検証 |
 | [`App/MakeIcon.swift`](App/MakeIcon.swift) | アプリアイコンの生成 |

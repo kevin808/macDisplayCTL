@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 task_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-tool="$task_dir/displayctl"
+tool="$task_dir/macDisplayCtl"
 task_language=$("$tool" language)
 message() {
     if [ "$task_language" = zh-Hans ]; then printf "$1"; else printf "$2"; fi

@@ -1,13 +1,14 @@
 #!/bin/sh
 set -eu
 task_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Retain installed paths and service identity for existing recovery preferences.
 task_support="$HOME/Library/Application Support/displayctl"
 task_plist="$HOME/Library/LaunchAgents/local.displayctl.guard.plist"
 task_domain="gui/$(id -u)"
 task_label="local.displayctl.guard"
 task_service="$task_domain/$task_label"
 task_log="$HOME/Library/Logs/displayctl-guard.log"
-MACDISPLAYCTL_LANGUAGE=$("$task_dir/displayctl" language)
+MACDISPLAYCTL_LANGUAGE=$("$task_dir/macDisplayCtl" language)
 export MACDISPLAYCTL_LANGUAGE
 message() {
     task_chinese=$1
@@ -20,13 +21,13 @@ message() {
     fi
 }
 if [ "$#" -gt 1 ]; then
-    message '用法：displayctl guard start|stop|status\n' 'Usage: displayctl guard start|stop|status\n' >&2
+    message '用法：macDisplayCtl guard start|stop|status\n' 'Usage: macDisplayCtl guard start|stop|status\n' >&2
     exit 2
 fi
 case "${1-status}" in
     start)
         # Build and validate read-only before changing the installed service.
-        "$task_dir/displayctl" watch --dry-run --once >/dev/null
+        "$task_dir/macDisplayCtl" watch --dry-run --once >/dev/null
         mkdir -p "$task_support" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
         if [ -f "$task_plist" ]; then
             cp "$task_plist" "$task_plist.backup"
@@ -34,11 +35,11 @@ case "${1-status}" in
         if [ -f "$task_support/displayctl" ]; then
             cp "$task_support/displayctl" "$task_support/displayctl.backup"
         fi
-        if [ -f "$task_dir/build/displayctl" ]; then
-            cp "$task_dir/build/displayctl" "$task_support/displayctl.new"
+        if [ -f "$task_dir/build/macDisplayCtl" ]; then
+            cp "$task_dir/build/macDisplayCtl" "$task_support/displayctl.new"
         else
             # A packaged .app ships the compiled helper alongside this script.
-            cp "$task_dir/displayctl" "$task_support/displayctl.new"
+            cp "$task_dir/macDisplayCtl" "$task_support/displayctl.new"
         fi
         chmod 755 "$task_support/displayctl.new"
         mv "$task_support/displayctl.new" "$task_support/displayctl"
@@ -93,11 +94,11 @@ PY
         ;;
     status)
         task_output=$(launchctl print "$task_service" 2>/dev/null) || {
-            message '兜底监控未运行。启用：displayctl guard start\n' 'Monitor is not running. Enable with: displayctl guard start\n'
+            message '兜底监控未运行。启用：macDisplayCtl guard start\n' 'Monitor is not running. Enable with: macDisplayCtl guard start\n'
             exit 0
         }
         printf '%s\n' "$task_output" | /usr/bin/awk '/state =|pid =|last exit code =/ {print}'
         message '日志：%s\n' 'Log: %s\n' "$task_log"
         ;;
-    *) message '用法：displayctl guard start|stop|status\n' 'Usage: displayctl guard start|stop|status\n' >&2; exit 2 ;;
+    *) message '用法：macDisplayCtl guard start|stop|status\n' 'Usage: macDisplayCtl guard start|stop|status\n' >&2; exit 2 ;;
 esac

@@ -68,7 +68,7 @@ func currentProjection(_ displays: [Display], externalID: UInt32) -> ProjectionM
 
 enum Backend {
     static var resources: URL { Bundle.main.resourceURL! }
-    static func run(_ arguments: [String], executable: String = "displayctl") async -> CommandResult {
+    static func run(_ arguments: [String], executable: String = "macDisplayCtl") async -> CommandResult {
         await Task.detached(priority: .userInitiated) {
             let process = Process()
             process.executableURL = resources.appendingPathComponent(executable)
@@ -177,17 +177,17 @@ final class ScreenModel: ObservableObject {
     }
 
     private func enableDefaultRecovery() async {
-        let result = await Backend.run(["status"], executable: "guardctl")
+        let result = await Backend.run(["status"], executable: "macDisplayCtl-guard")
         guardRunning = result.output.contains("state = running")
         let installed = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/displayctl/displayctl")
-        let bundled = Backend.resources.appendingPathComponent("displayctl")
+        let bundled = Backend.resources.appendingPathComponent("macDisplayCtl")
         let helperChanged = (try? Data(contentsOf: installed)) != (try? Data(contentsOf: bundled))
         let defaults = UserDefaults.standard
         let initializedKey = "automaticRecoveryInitialized"
         if shouldStartRecovery(initialized: defaults.bool(forKey: initializedKey),
                                running: guardRunning, helperChanged: helperChanged) {
-            let start = await Backend.run(["start"], executable: "guardctl")
+            let start = await Backend.run(["start"], executable: "macDisplayCtl-guard")
             guard start.code == 0 else { errorMessage = start.output; return }
             guardRunning = true
         }
@@ -440,7 +440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct ScreenSwitchApplication {
+struct MacDisplayCtlApplication {
     @MainActor static func main() {
         if CommandLine.arguments.contains("--self-test") {
             func fixture(_ internalOn: Bool, _ externalOn: Bool, mirror: Bool = false,

@@ -41,7 +41,7 @@ static void fail(NSString *message) {
 }
 
 static void usage(void) {
-    puts(localize(@"显示器启停工具（macOS）\n用法：displayctl list [--json]\n      displayctl on|off|toggle builtin|external|all|ID [--dry-run]\n      displayctl project internal|duplicate|extend|external [外屏ID] [--dry-run]\n      displayctl guard start|stop|status\n      displayctl watch --dry-run --once\n      displayctl language\n\n默认拒绝停用最后一块可用的非虚拟屏。\n--allow-all-off 可显式允许全部停用；--dry-run 只显示操作计划。\n这是系统显示布局启停，不是 DDC 硬件电源开关。", @"macDisplayCtl display control (macOS)\nUsage: displayctl list [--json]\n       displayctl on|off|toggle builtin|external|all|ID [--dry-run]\n       displayctl project internal|duplicate|extend|external [external-ID] [--dry-run]\n       displayctl guard start|stop|status\n       displayctl watch --dry-run --once\n       displayctl language\n\nDisabling the last usable non-virtual display is refused by default.\n--allow-all-off explicitly permits disabling all displays; --dry-run previews changes.\nThis changes the macOS display layout, not DDC hardware power.").UTF8String);
+    puts(localize(@"显示器启停工具（macOS）\n用法：macDisplayCtl list [--json]\n      macDisplayCtl on|off|toggle builtin|external|all|ID [--dry-run]\n      macDisplayCtl project internal|duplicate|extend|external [外屏ID] [--dry-run]\n      macDisplayCtl guard start|stop|status\n      macDisplayCtl watch --dry-run --once\n      macDisplayCtl language\n\n默认拒绝停用最后一块可用的非虚拟屏。\n--allow-all-off 可显式允许全部停用；--dry-run 只显示操作计划。\n这是系统显示布局启停，不是 DDC 硬件电源开关。", @"macDisplayCtl display control (macOS)\nUsage: macDisplayCtl list [--json]\n       macDisplayCtl on|off|toggle builtin|external|all|ID [--dry-run]\n       macDisplayCtl project internal|duplicate|extend|external [external-ID] [--dry-run]\n       macDisplayCtl guard start|stop|status\n       macDisplayCtl watch --dry-run --once\n       macDisplayCtl language\n\nDisabling the last usable non-virtual display is refused by default.\n--allow-all-off explicitly permits disabling all displays; --dry-run previews changes.\nThis changes the macOS display layout, not DDC hardware power.").UTF8String);
 }
 
 static NSString *bootID(void) {
@@ -53,6 +53,7 @@ static NSString *bootID(void) {
 }
 
 static NSString *cachePath(void) {
+    // Preserve display identities, arrangements, and recovery settings on upgrade.
     return [NSHomeDirectory() stringByAppendingPathComponent:
             @"Library/Application Support/displayctl/displays.json"];
 }
@@ -375,7 +376,7 @@ static void recoveryAttempted(GuardState *state, double now) {
 }
 
 static void guardLog(NSString *message) {
-    fprintf(stderr, "%s displayctl-guard: %s\n",
+    fprintf(stderr, "%s macDisplayCtl-guard: %s\n",
             [NSDate.date.description UTF8String], message.UTF8String);
     fflush(stderr);
 }
