@@ -18,7 +18,7 @@ macDisplayCtl is a macOS display utility with a native SwiftUI/AppKit app, **mac
 - Switch between built-in only, mirror, extend, and external only modes.
 - Remember display positions and the main display when returning to extend mode.
 - Choose which physical external display acts as the second screen.
-- Open the translucent panel from the menu bar or with **Control + Option + P**.
+- Open the translucent panel from the menu bar or with **Shift + Option + P**.
 - Enable, disable, or toggle displays by type or ID from the command line.
 - Preview changes with `--dry-run` and list displays as JSON for scripts.
 - Protect the last enabled non-virtual display from being disabled by default.
@@ -50,7 +50,9 @@ For command-line use, the `./macDisplayCtl` launcher compiles the helper on firs
 
 ## App usage
 
-The app runs without a Dock icon by default. Left-click the menu bar icon to choose **Show Main Window**, **Built-in Only**, **Extend**, **Mirror**, **External Only**, or **Quit**. Right-click has no menu. Press **Control + Option + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
+The app runs without a Dock icon by default. Left-click the menu bar icon to choose **Show Main Window**, **Built-in Only**, **Extend**, **Mirror**, **External Only**, or **Quit**. Right-click has no menu. Press **Shift + Option + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
+
+Global shortcuts **Shift + Option + 1/2/3/4** select Built-in Only, Extend, Mirror, and External Only respectively. The menu displays each shortcut.
 
 | Key | Mode shown in the app | Behavior |
 | --- | --- | --- |
@@ -65,7 +67,7 @@ The second-screen selector appears below the title only when multiple physical e
 
 Before switching modes, the app saves the current extended positions and main display for each physical display pair. Returning to Extend restores that arrangement, including vertical positions and offsets. Changes made in macOS Display settings are captured on the next mode switch. Saved arrangements use display UUIDs to survive app restarts and system reboots; if UUIDs are unavailable, numeric IDs are used only within the current boot. With no saved arrangement, the app keeps a valid arrangement supplied by macOS, or places the external display on the right as a fallback. An arrangement lost before this feature was installed must be set again once in macOS Display settings.
 
-Click the desktop or another app to hide the panel automatically. You can also click the large close button in the top-right corner or press **Esc**. Reopen it from the menu bar or with **Control + Option + P**; **Command + Q** quits the app. The panel contains the four projection modes. Failed operations show an alert. Hiding the panel, quitting the app, or closing the interactive menu does not stop the independent monitor.
+Click the desktop or another app to hide the panel automatically. You can also click the large close button in the top-right corner or press **Esc**. Reopen it from the menu bar or with **Shift + Option + P**; **Command + Q** quits the app. The panel contains the four projection modes. Failed operations show an alert. Hiding the panel, quitting the app, or closing the interactive menu does not stop the independent monitor.
 
 On first launch, the app automatically enables **Turn on the built-in screen after external disconnection** and installs the monitor to run at login. Later launches update a running monitor if its helper differs from the bundled helper. After initialization, an explicit `guard stop` is retained; use `guard start` to enable it again.
 

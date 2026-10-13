@@ -3,7 +3,7 @@ import SwiftUI
 import Carbon
 
 enum ProjectionMode: String, CaseIterable, Identifiable {
-    case internalOnly = "internal", duplicate, extend, externalOnly = "external"
+    case internalOnly = "internal", extend, duplicate, externalOnly = "external"
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -348,13 +348,13 @@ struct ProjectionPanel: View {
             HStack(spacing: 12) {
                 Text(L10n.text("Project")).font(.system(size: 25, weight: .medium))
                 HStack(spacing: 4) {
-                    Text("⌃⌥").font(.system(size: 13))
+                    Text("⇧⌥").font(.system(size: 13))
                     Text("P").font(.system(size: 14))
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.3)))
-                .help(L10n.text("Open the panel with Control + Option + P"))
+                .help(L10n.text("Open the panel with Shift + Option + P"))
                 Spacer(minLength: 4)
                 if model.busy { ProgressView().controlSize(.small) }
                 Button(action: onClose) {
@@ -418,7 +418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private var window: NSWindow!
     private var item: NSStatusItem!
-    private var hotKey: EventHotKeyRef?
+    private var hotKeys: [EventHotKeyRef] = []
     private var model: ScreenModel!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -458,16 +458,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked(_:))
         item.button?.sendAction(on: [.leftMouseUp])
-        item.button?.toolTip = L10n.text("macDisplayCtl · ⌃⌥P")
+        item.button?.toolTip = L10n.text("macDisplayCtl · ⇧⌥P")
         var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
-            guard let context else { return OSStatus(eventNotHandledErr) }
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
+            guard let context, let event else { return OSStatus(eventNotHandledErr) }
+            var identifier = EventHotKeyID()
+            let result = GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                                           EventParamType(typeEventHotKeyID), nil,
+                                           MemoryLayout<EventHotKeyID>.size, nil, &identifier)
+            guard result == noErr, identifier.signature == 0x53435754 else {
+                return OSStatus(eventNotHandledErr)
+            }
             let delegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
-            Task { @MainActor in delegate.togglePanel() }
+            let id = identifier.id
+            Task { @MainActor in
+                if id == 1 { delegate.togglePanel() }
+                else if (2...5).contains(id) {
+                    delegate.applyMode(ProjectionMode.allCases[Int(id - 2)])
+                }
+            }
             return noErr
         }, 1, &event, Unmanaged.passUnretained(self).toOpaque(), nil)
-        RegisterEventHotKey(UInt32(kVK_ANSI_P), UInt32(controlKey | optionKey),
-                           EventHotKeyID(signature: 0x53435754, id: 1), GetApplicationEventTarget(), 0, &hotKey)
+        let keys = [kVK_ANSI_P, kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4]
+        for (index, key) in keys.enumerated() {
+            var reference: EventHotKeyRef?
+            let result = RegisterEventHotKey(UInt32(key), UInt32(shiftKey | optionKey),
+                                            EventHotKeyID(signature: 0x53435754, id: UInt32(index + 1)),
+                                            GetApplicationEventTarget(), 0, &reference)
+            if result == noErr, let reference { hotKeys.append(reference) }
+            else { NSLog("Unable to register shortcut %d: %d", index + 1, result) }
+        }
         showPanel()
         if let index = CommandLine.arguments.firstIndex(of: "--render-preview"),
            CommandLine.arguments.indices.contains(index + 1) {
@@ -494,6 +514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) {
         CGDisplayRemoveReconfigurationCallback(Self.displayChanged, Unmanaged.passUnretained(self).toOpaque())
+        for reference in hotKeys { UnregisterEventHotKey(reference) }
     }
     func applicationDidResignActive(_ notification: Notification) { hidePanel() }
     func hidePanel() { window?.orderOut(nil) }
@@ -503,12 +524,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let show = NSMenuItem(title: L10n.text("Show Main Window"),
-                              action: #selector(showMainWindow), keyEquivalent: "")
+                              action: #selector(showMainWindow), keyEquivalent: "p")
+        show.keyEquivalentModifierMask = [.shift, .option]
         show.target = self
         menu.addItem(show)
         menu.addItem(.separator())
-        for mode in [ProjectionMode.internalOnly, .extend, .duplicate, .externalOnly] {
-            let entry = NSMenuItem(title: mode.title, action: #selector(selectMenuMode(_:)), keyEquivalent: "")
+        for (index, mode) in ProjectionMode.allCases.enumerated() {
+            let entry = NSMenuItem(title: mode.title, action: #selector(selectMenuMode(_:)), keyEquivalent: String(index + 1))
+            entry.keyEquivalentModifierMask = [.shift, .option]
             entry.target = self
             entry.representedObject = mode.rawValue
             entry.state = model.selected == mode ? .on : .off
@@ -528,6 +551,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func selectMenuMode(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let mode = ProjectionMode(rawValue: raw) else { return }
+        applyMode(mode)
+    }
+    private func applyMode(_ mode: ProjectionMode) {
         model.apply(mode) { [weak self] in
             guard let self, self.model.errorMessage != nil else { return }
             self.showPanel()
@@ -599,8 +625,8 @@ struct MacDisplayCtlApplication {
             precondition(projectionError(CommandResult(code: 0, output: "Done"), mode: .extend,
                 externalAvailable: true) == nil)
             let expectedTitles = L10n.language == "zh-Hans"
-                ? ["仅电脑屏幕", "复制", "扩展", "仅第二屏幕"]
-                : ["Built-in Only", "Mirror", "Extend", "External Only"]
+                ? ["仅电脑屏幕", "扩展", "复制", "仅第二屏幕"]
+                : ["Built-in Only", "Extend", "Mirror", "External Only"]
             precondition(ProjectionMode.allCases.map(\.title) == expectedTitles)
             precondition(L10n.text("macDisplayCtl") == (L10n.language == "zh-Hans" ? "屏幕切换" : "macDisplayCtl"))
             precondition(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String == L10n.text("macDisplayCtl"))
