@@ -82,7 +82,7 @@ with open(sys.argv[1], 'a+') as lock:
 PY
         launchctl enable "$task_service"
         launchctl bootstrap "$task_domain" "$task_plist"
-        message '兜底与状态记忆监控已启用，并设为登录时启动。\n日志：%s\n' 'Recovery and state memory monitor enabled, with launch at login.\nLog: %s\n' "$task_log"
+        message '断开外屏后自动点亮内屏已启用，并设为登录时启动。\n日志：%s\n' 'Automatic built-in screen recovery after external disconnection enabled, with launch at login.\nLog: %s\n' "$task_log"
         ;;
     stop)
         launchctl disable "$task_service"

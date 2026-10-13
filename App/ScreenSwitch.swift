@@ -97,36 +97,21 @@ final class ScreenModel: ObservableObject {
     @Published var selected: ProjectionMode?
     @Published var busy = false
     @Published var loading = true
-    @Published var guardRunning = false
-    @Published var guardBusy = false
-    @Published var message = L10n.text("Reading displays…")
-    @Published var hasError = false
+    @Published var errorMessage: String?
+    private var guardRunning = false
+    private var lastReadError: String?
     private var refreshing = false
-    private var persistentMessage = false
     private var externalUUID: String?
     private var timer: Timer?
 
     var externals: [Display] { displays.filter { !$0.builtin && !$0.virtual } }
     var builtIn: Display? { displays.first { $0.builtin && !$0.virtual } }
     var target: Display? { externals.first { $0.id == externalID } }
-    var connectedText: String {
-        let live = displays.filter { $0.enabled && !$0.virtual }
-        return live.isEmpty ? L10n.text("No usable displays detected") : live.map(\.name).joined(separator: " · ")
-    }
     init() {
         Task {
-            await refresh(); await updateGuardStatus()
-            // Update the existing monitor to the bundled helper so projection uses
-            // the same lock as the monitor. Do not enable a deliberately stopped guard.
-            if guardRunning && !CommandLine.arguments.contains("--render-preview") {
-                let installed = FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent("Library/Application Support/displayctl/displayctl")
-                let bundled = Backend.resources.appendingPathComponent("displayctl")
-                if (try? Data(contentsOf: installed)) != (try? Data(contentsOf: bundled)) {
-                    let result = await Backend.run(["start"], executable: "guardctl")
-                    if result.code != 0 { hasError = true; persistentMessage = true; message = result.output }
-                    await updateGuardStatus()
-                }
+            await refresh()
+            if !CommandLine.arguments.contains("--render-preview") {
+                await enableDefaultRecovery()
             }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
@@ -145,10 +130,12 @@ final class ScreenModel: ObservableObject {
         guard result.code == 0,
               let data = result.output.data(using: .utf8),
               let rows = try? JSONDecoder().decode([Display].self, from: data) else {
-            hasError = true
-            message = result.output.isEmpty ? L10n.text("Unable to read displays. Click Refresh to retry.") : result.output
+            let error = result.output.isEmpty ? L10n.text("Unable to read displays. Reopen the panel to retry.") : result.output
+            if error != lastReadError { errorMessage = error }
+            lastReadError = error
             return
         }
+        lastReadError = nil
         displays = rows
         let candidates = externals
         if let uuid = externalUUID, let matched = candidates.first(where: { $0.uuid == uuid && !$0.remembered }) {
@@ -159,10 +146,6 @@ final class ScreenModel: ObservableObject {
         }
         externalUUID = target?.uuid
         updateSelectedMode()
-        if !persistentMessage {
-            hasError = false
-            message = connectedText
-        }
     }
 
     func chooseExternal(_ id: UInt32) {
@@ -182,40 +165,39 @@ final class ScreenModel: ObservableObject {
     func apply(_ mode: ProjectionMode) {
         guard canApply(mode) else { return }
         busy = true
-        hasError = false
-        persistentMessage = true
-        message = L10n.format("Switching to %@…", mode.title)
         let id = externalID
         Task {
             var arguments = ["project", mode.rawValue]
             if mode != .internalOnly && id != 0 { arguments.append(String(id)) }
             let result = await Backend.run(arguments)
             busy = false
-            hasError = result.code != 0
-            message = result.code == 0 ? L10n.format("Switched to %@", mode.title) : result.output
+            if result.code != 0 { errorMessage = result.output }
             await refresh()
-            if result.code == 0 {
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
-                if !busy { persistentMessage = false; message = connectedText }
-            }
         }
     }
 
-    func updateGuardStatus() async {
+    private func enableDefaultRecovery() async {
         let result = await Backend.run(["status"], executable: "guardctl")
         guardRunning = result.output.contains("state = running")
-    }
-
-    func toggleGuard() {
-        guard !guardBusy && !busy else { return }
-        guardBusy = true
-        Task {
-            let result = await Backend.run([guardRunning ? "stop" : "start"], executable: "guardctl")
-            if result.code != 0 { hasError = true; persistentMessage = true; message = result.output }
-            await updateGuardStatus()
-            guardBusy = false
+        let installed = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/displayctl/displayctl")
+        let bundled = Backend.resources.appendingPathComponent("displayctl")
+        let helperChanged = (try? Data(contentsOf: installed)) != (try? Data(contentsOf: bundled))
+        let defaults = UserDefaults.standard
+        let initializedKey = "automaticRecoveryInitialized"
+        if shouldStartRecovery(initialized: defaults.bool(forKey: initializedKey),
+                               running: guardRunning, helperChanged: helperChanged) {
+            let start = await Backend.run(["start"], executable: "guardctl")
+            guard start.code == 0 else { errorMessage = start.output; return }
+            guardRunning = true
         }
+        if guardRunning { defaults.set(true, forKey: initializedKey) }
     }
+}
+
+// Start on first launch, update a running helper, and retain later explicit CLI stops.
+func shouldStartRecovery(initialized: Bool, running: Bool, helperChanged: Bool) -> Bool {
+    (!initialized && !running) || (running && helperChanged)
 }
 
 struct ScreenPair: View {
@@ -308,16 +290,9 @@ struct AcrylicBackground: View {
 
 struct ProjectionPanel: View {
     @ObservedObject var model: ScreenModel
-    private var recoveryHelp: String {
-        L10n.text("When enabled, if no screen remains usable after unplugging external displays, the built-in screen turns on while the laptop lid is open. Reconnecting an external display restores the built-in screen's previous on/off state. Runs at login and continues after you quit the app.")
-    }
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 15) {
-                Button { NSApp.keyWindow?.orderOut(nil) } label: {
-                    Image(systemName: "arrow.left").font(.system(size: 20, weight: .regular))
-                        .frame(width: 24, height: 28)
-                }.buttonStyle(.plain).help(L10n.text("Hide panel"))
+            HStack(spacing: 12) {
                 Text(L10n.text("Project")).font(.system(size: 25, weight: .medium))
                 HStack(spacing: 4) {
                     Text("⌃⌥").font(.system(size: 13))
@@ -327,13 +302,17 @@ struct ProjectionPanel: View {
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.3)))
                 .help(L10n.text("Open the panel with Control + Option + P"))
-                Spacer()
-                if model.busy { ProgressView().controlSize(.small) }
-                else {
-                    Button { Task { await model.refresh(); await model.updateGuardStatus() } } label: {
-                        Image(systemName: "arrow.clockwise").font(.system(size: 15)).foregroundStyle(.secondary)
-                    }.buttonStyle(.plain).help(L10n.text("Refresh display status"))
+                Spacer(minLength: 4)
+                if model.externals.count > 1 {
+                    Picker(L10n.text("Second display"), selection: Binding(get: { model.externalID }, set: { model.chooseExternal($0) })) {
+                        ForEach(model.externals) { display in
+                            Text(display.name + (display.remembered ? L10n.text(" (Disconnected)") : "")).tag(display.id)
+                        }
+                    }
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 150)
+                    .disabled(model.busy)
                 }
+                if model.busy { ProgressView().controlSize(.small) }
             }
             .padding(.horizontal, 24).padding(.top, 25).padding(.bottom, 23)
             VStack(spacing: 7) {
@@ -343,51 +322,19 @@ struct ProjectionPanel: View {
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [])
                 }
             }
-            Spacer(minLength: 14)
-            VStack(alignment: .leading, spacing: 13) {
-                if model.externals.count > 1 {
-                    HStack {
-                        Text(L10n.text("Second display")).font(.system(size: 12)).foregroundStyle(.secondary)
-                        Spacer()
-                        Picker(L10n.text("Second display"), selection: Binding(get: { model.externalID }, set: { model.chooseExternal($0) })) {
-                            ForEach(model.externals) { display in
-                                Text(display.name + (display.remembered ? L10n.text(" (Disconnected)") : "")).tag(display.id)
-                            }
-                        }.labelsHidden().pickerStyle(.menu).fixedSize()
-                        .disabled(model.busy)
-                    }
-                }
-                HStack(alignment: .top, spacing: 7) {
-                    Image(systemName: model.hasError ? "exclamationmark.circle" : "display")
-                        .foregroundStyle(model.hasError ? Color.orange : Color.secondary)
-                    Text(model.message).lineLimit(3).textSelection(.enabled)
-                        .foregroundStyle(model.hasError ? Color.primary : Color.secondary)
-                }.font(.system(size: 11.5)).frame(minHeight: 28, alignment: .topLeading)
-                Divider().opacity(0.45)
-                HStack {
-                    Image(systemName: "laptopcomputer")
-                        .foregroundStyle(model.guardRunning ? Color(red: 0.12, green: 0.43, blue: 0.47) : .secondary)
-                    Text(L10n.text("Turn on built-in screen when unplugged"))
-                        .font(.system(size: 11))
-                    Image(systemName: "questionmark.circle")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18)
-                        .help(recoveryHelp)
-                        .accessibilityLabel(L10n.text("About automatic screen recovery"))
-                        .accessibilityValue(recoveryHelp)
-                    Spacer(minLength: 2)
-                    if model.guardBusy { ProgressView().controlSize(.mini) }
-                    else {
-                        Toggle(L10n.text("Turn on built-in screen when unplugged"),
-                               isOn: Binding(get: { model.guardRunning }, set: { _ in model.toggleGuard() }))
-                            .labelsHidden().toggleStyle(.switch).controlSize(.mini)
-                            .disabled(model.busy)
-                    }
-                }
-            }.padding(.horizontal, 24).padding(.bottom, 21)
+            .padding(.bottom, 18)
         }
-        .frame(width: 414, height: 610)
+        .frame(width: 414, height: 470)
         .background { AcrylicBackground() }
+        .onExitCommand { NSApp.keyWindow?.orderOut(nil) }
+        .alert(L10n.text("Unable to complete the operation"), isPresented: Binding(
+            get: { model.errorMessage != nil },
+            set: { if !$0 { model.errorMessage = nil } }
+        )) {
+            Button(L10n.text("OK"), role: .cancel) { model.errorMessage = nil }
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
     }
 }
 
@@ -413,7 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.submenu = editMenu; menu.addItem(edit)
         NSApp.mainMenu = menu
         model = ScreenModel()
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 414, height: 610),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 414, height: 470),
                           styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = L10n.text("macDisplayCtl")
         window.titleVisibility = .hidden
@@ -446,7 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            CommandLine.arguments.indices.contains(index + 1) {
             let path = CommandLine.arguments[index + 1]
             Task {
-                await model.refresh(); await model.updateGuardStatus()
+                await model.refresh()
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 guard let view = window.contentView else { NSApp.terminate(nil); return }
                 view.layoutSubtreeIfNeeded()
@@ -472,7 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showPanel() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        Task { await model.refresh(); await model.updateGuardStatus() }
+        Task { await model.refresh() }
     }
 }
 
@@ -508,7 +455,13 @@ struct ScreenSwitchApplication {
             precondition(ProjectionMode.allCases.map(\.title) == expectedTitles)
             precondition(L10n.text("macDisplayCtl") == (L10n.language == "zh-Hans" ? "屏幕切换" : "macDisplayCtl"))
             precondition(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String == L10n.text("macDisplayCtl"))
-            print("GUI state and localization checks passed (\(L10n.language)).")
+            precondition(shouldStartRecovery(initialized: false, running: false, helperChanged: false))
+            precondition(shouldStartRecovery(initialized: false, running: false, helperChanged: true))
+            precondition(!shouldStartRecovery(initialized: false, running: true, helperChanged: false))
+            precondition(shouldStartRecovery(initialized: true, running: true, helperChanged: true))
+            precondition(!shouldStartRecovery(initialized: true, running: false, helperChanged: true))
+            precondition(!shouldStartRecovery(initialized: true, running: true, helperChanged: false))
+            print("GUI state, recovery startup policy, and localization checks passed (\(L10n.language)).")
             return
         }
         let application = NSApplication.shared

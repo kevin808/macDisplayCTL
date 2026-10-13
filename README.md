@@ -11,7 +11,7 @@ English | [Simplified Chinese](README_CN.md) | [Japanese](README_JA.md)
 
 </div>
 
-macDisplayCtl is a macOS display utility with a native SwiftUI/AppKit app, **macDisplayCtl.app**, and a command-line tool, `displayctl`. It provides four projection modes, individual display controls, and an optional background monitor that restores the built-in display when external displays disconnect.
+macDisplayCtl is a macOS display utility with a native SwiftUI/AppKit app, **macDisplayCtl.app**, and a command-line tool, `displayctl`. It provides four projection modes, individual display controls, and a background monitor that restores the built-in display when external displays disconnect. The app enables it by default on first launch.
 
 ## Features
 
@@ -22,7 +22,7 @@ macDisplayCtl is a macOS display utility with a native SwiftUI/AppKit app, **mac
 - Preview changes with `--dry-run` and list displays as JSON for scripts.
 - Protect the last enabled non-virtual display from being disabled by default.
 - Restore the built-in display after external displays disconnect, then restore its previous state after reconnection.
-- Run the recovery monitor independently of the app, with optional launch at login.
+- Automatically enable recovery and launch at login on first app launch; the monitor runs independently of the app.
 
 The app, command-line tool, and monitor messages follow the system language: Chinese uses a Simplified Chinese interface, and other languages use English. The app is named **macDisplayCtl** in English. Documentation is available in English, Simplified Chinese, and Japanese.
 
@@ -58,11 +58,11 @@ Click the dual-display menu bar icon or press **Control + Option + P** to open o
 | `3` | Extend | Enable both displays, exit mirroring, and place the external display to the right of the built-in display. |
 | `4` | External Only | Enable and verify the selected external display, then exit mirroring and disable the built-in display. |
 
-The second-screen selector appears only when multiple physical external targets are available; with one external display, it is selected automatically. Projection modes use the built-in display and that external display; other enabled physical external displays are disabled. Virtual displays do not participate. Cached, unplugged displays are marked **Disconnected**. If enabling the target fails, currently usable displays remain available. Mirroring resolutions depend on macOS and the displays.
+The second-screen selector appears in the header only when multiple physical external targets are available; with one external display, it is selected automatically. Projection modes use the built-in display and that external display; other enabled physical external displays are disabled. Virtual displays do not participate. Cached, unplugged displays are marked **Disconnected**. If enabling the target fails, currently usable displays remain available. Mirroring resolutions depend on macOS and the displays.
 
-The back arrow collapses the panel, and **Command + Q** quits the app. The **Turn on built-in screen when unplugged** switch at the bottom controls automatic recovery and launch at login. Hover over the question mark for an explanation of recovery, reconnection, and background operation. Quitting the app or closing the interactive menu does not stop the independent monitor.
+Press **Esc** to hide the panel, or **Command + Q** to quit the app. The panel contains the four projection modes, with no status footer or recovery switch. Failed operations show an alert. Quitting the app or closing the interactive menu does not stop the independent monitor.
 
-When the app opens, it updates a running monitor if the installed helper differs from the bundled helper. A monitor that has been stopped manually stays stopped.
+On first launch, the app automatically enables **Turn on the built-in screen after external disconnection** and installs the monitor to run at login. Later launches update a running monitor if its helper differs from the bundled helper. After initialization, an explicit `guard stop` is retained; use `guard start` to enable it again.
 
 ## Language
 
