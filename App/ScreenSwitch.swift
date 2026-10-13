@@ -308,6 +308,9 @@ struct AcrylicBackground: View {
 
 struct ProjectionPanel: View {
     @ObservedObject var model: ScreenModel
+    private var recoveryHelp: String {
+        L10n.text("When enabled, if no screen remains usable after unplugging external displays, the built-in screen turns on while the laptop lid is open. Reconnecting an external display restores the built-in screen's previous on/off state. Runs at login and continues after you quit the app.")
+    }
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 15) {
@@ -342,7 +345,7 @@ struct ProjectionPanel: View {
             }
             Spacer(minLength: 14)
             VStack(alignment: .leading, spacing: 13) {
-                if !model.externals.isEmpty {
+                if model.externals.count > 1 {
                     HStack {
                         Text(L10n.text("Second display")).font(.system(size: 12)).foregroundStyle(.secondary)
                         Spacer()
@@ -362,16 +365,23 @@ struct ProjectionPanel: View {
                 }.font(.system(size: 11.5)).frame(minHeight: 28, alignment: .topLeading)
                 Divider().opacity(0.45)
                 HStack {
-                    Image(systemName: model.guardRunning ? "checkmark.shield" : "shield")
+                    Image(systemName: "laptopcomputer")
                         .foregroundStyle(model.guardRunning ? Color(red: 0.12, green: 0.43, blue: 0.47) : .secondary)
-                    Text(model.guardRunning ? L10n.text("Auto-recovery · Remember built-in state") : L10n.text("Auto-recovery is off"))
+                    Text(L10n.text("Turn on built-in screen when unplugged"))
                         .font(.system(size: 11))
+                    Image(systemName: "questionmark.circle")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18)
+                        .help(recoveryHelp)
+                        .accessibilityLabel(L10n.text("About automatic screen recovery"))
+                        .accessibilityValue(recoveryHelp)
                     Spacer(minLength: 2)
                     if model.guardBusy { ProgressView().controlSize(.mini) }
                     else {
-                        Button(model.guardRunning ? L10n.text("Disable") : L10n.text("Enable")) { model.toggleGuard() }
-                            .font(.system(size: 11)).buttonStyle(.plain)
-                            .foregroundStyle(.secondary).disabled(model.busy)
+                        Toggle(L10n.text("Turn on built-in screen when unplugged"),
+                               isOn: Binding(get: { model.guardRunning }, set: { _ in model.toggleGuard() }))
+                            .labelsHidden().toggleStyle(.switch).controlSize(.mini)
+                            .disabled(model.busy)
                     }
                 }
             }.padding(.horizontal, 24).padding(.bottom, 21)

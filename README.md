@@ -58,9 +58,9 @@ Click the dual-display menu bar icon or press **Control + Option + P** to open o
 | `3` | Extend | Enable both displays, exit mirroring, and place the external display to the right of the built-in display. |
 | `4` | External Only | Enable and verify the selected external display, then exit mirroring and disable the built-in display. |
 
-If several physical external displays are available, choose the second screen at the bottom of the panel. Projection modes use the built-in display and that external display; other enabled physical external displays are disabled. Virtual displays do not participate. Cached, unplugged displays are marked **Disconnected**. If enabling the target fails, currently usable displays remain available. Mirroring resolutions depend on macOS and the displays.
+The second-screen selector appears only when multiple physical external targets are available; with one external display, it is selected automatically. Projection modes use the built-in display and that external display; other enabled physical external displays are disabled. Virtual displays do not participate. Cached, unplugged displays are marked **Disconnected**. If enabling the target fails, currently usable displays remain available. Mirroring resolutions depend on macOS and the displays.
 
-The back arrow collapses the panel, and **Command + Q** quits the app. The protection switch at the bottom controls the recovery monitor and its launch-at-login setting. Quitting the app or closing the interactive menu does not stop the independent monitor.
+The back arrow collapses the panel, and **Command + Q** quits the app. The **Turn on built-in screen when unplugged** switch at the bottom controls automatic recovery and launch at login. Hover over the question mark for an explanation of recovery, reconnection, and background operation. Quitting the app or closing the interactive menu does not stop the independent monitor.
 
 When the app opens, it updates a running monitor if the installed helper differs from the bundled helper. A monitor that has been stopped manually stays stopped.
 
