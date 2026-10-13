@@ -15,5 +15,5 @@ if [ -x "$task_dir/build/macDisplayCtl.app/Contents/MacOS/ScreenSwitch" ]; then
     codesign --verify --deep --strict "$task_dir/build/macDisplayCtl.app"
 fi
 python3 "$task_dir/tests/localization.py"
-sh -n "$task_dir/displayctl" "$task_dir/guardctl" "$task_dir/显示器开关.command" "$task_dir/macDisplayCtl.command" "$task_dir/build-app.sh"
+sh -n "$task_dir/displayctl" "$task_dir/guardctl" "$task_dir/macDisplayCtl.command" "$task_dir/build-app.sh"
 git -C "$task_dir" diff --check
