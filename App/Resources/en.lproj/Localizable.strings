@@ -2,6 +2,7 @@
 "About macDisplayCtl" = "About macDisplayCtl";
 "Built-in Only" = "Built-in Only";
 "Close panel" = "Close panel";
+"Connect an external display to use this mode" = "Connect an external display to use this mode";
 "Copy" = "Copy";
 "Current mode" = "Current mode";
 "Edit" = "Edit";
@@ -17,6 +18,7 @@
 "Second display" = "Second display";
 "Show the same content on both displays" = "Show the same content on both displays";
 "Unable to complete the operation" = "Unable to complete the operation";
+"The display connection is changing. Wait a moment and try again." = "The display connection is changing. Wait a moment and try again.";
 "Unable to read displays. Reopen the panel to retry." = "Unable to read displays. Reopen the panel to retry.";
 "Use only the built-in Mac display" = "Use only the built-in Mac display";
 "Use only the selected external display" = "Use only the selected external display";

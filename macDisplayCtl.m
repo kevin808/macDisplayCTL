@@ -107,6 +107,60 @@ static NSArray<NSDictionary *> *loadRemembered(void) {
     return valid;
 }
 
+static NSString *monitorIdentity(uint32_t vendor, uint32_t product, uint32_t serial) {
+    return vendor && product ? [NSString stringWithFormat:@"%u:%u:%u", vendor, product, serial] : nil;
+}
+
+static NSString *edidIdentity(id data) {
+    if (![data isKindOfClass:NSData.class] || [data length] < 128) return nil;
+    const uint8_t *bytes = [data bytes];
+    const uint8_t header[] = {0, 255, 255, 255, 255, 255, 255, 0};
+    if (memcmp(bytes, header, sizeof(header))) return nil;
+    return monitorIdentity((bytes[8] << 8) | bytes[9], bytes[10] | (bytes[11] << 8),
+                           (uint32_t)bytes[12] | ((uint32_t)bytes[13] << 8) |
+                           ((uint32_t)bytes[14] << 16) | ((uint32_t)bytes[15] << 24));
+}
+
+static NSString *portMonitorIdentity(NSDictionary *values) {
+    // A port can retain its EDID after hot-plug detect goes low.
+    if ([values[@"HPD_StateDescription"] isEqual:@"Low"]) return nil;
+    return edidIdentity(values[@"EDID"] ?: values[@"IODisplayEDID"]);
+}
+
+// Physical port EDIDs remain available when a connected display is soft-disabled.
+// CoreGraphics "online" alone cannot distinguish that state from an unplugged ID.
+static NSSet *connectedMonitors(void) {
+    NSMutableSet *identities = [NSMutableSet set];
+    for (NSString *className in @[@"IOPortTransportStateDisplayPort", @"IODisplayConnect"]) {
+        io_iterator_t iterator = 0;
+        if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(className.UTF8String), &iterator) != KERN_SUCCESS)
+            return nil; // A failed probe is unknown, not evidence of disconnection.
+        io_service_t service;
+        while ((service = IOIteratorNext(iterator))) {
+            CFMutableDictionaryRef properties = NULL;
+            if (IORegistryEntryCreateCFProperties(service, &properties, kCFAllocatorDefault, 0) != KERN_SUCCESS) {
+                IOObjectRelease(service); IOObjectRelease(iterator); return nil;
+            }
+            NSDictionary *values = CFBridgingRelease(properties);
+            NSString *identity = portMonitorIdentity(values);
+            if (identity) [identities addObject:identity];
+            IOObjectRelease(service);
+        }
+        IOObjectRelease(iterator);
+    }
+    return identities;
+}
+
+static id connectionState(NSDictionary *row, NSSet *monitors) {
+    if ([row[@"builtin"] boolValue] || [row[@"online"] boolValue]) return @YES;
+    if (!monitors) return NSNull.null;
+    NSString *identity = monitorIdentity([row[@"vendor"] unsignedIntValue], [row[@"product"] unsignedIntValue],
+                                         [row[@"serial"] unsignedIntValue]);
+    if (identity) return @([monitors containsObject:identity]);
+    // Older caches lack EDID identity; only an empty physical inventory is conclusive.
+    return monitors.count ? NSNull.null : @NO;
+}
+
 static NSArray<NSDictionary *> *discover(NSString **error) {
     CGDirectDisplayID ids[256];
     uint32_t count = 0;
@@ -136,6 +190,8 @@ static NSArray<NSDictionary *> *discover(NSString **error) {
             @"online": @(online), @"active": @(active), @"mirror": @(mirror),
             @"enabled": @(online && (active || mirror)),
             @"mirrorOf": @(CGDisplayMirrorsDisplay(display)),
+            @"vendor": @(CGDisplayVendorNumber(display)), @"product": @(CGDisplayModelNumber(display)),
+            @"serial": @(CGDisplaySerialNumber(display)),
             @"width": @(CGDisplayPixelsWide(display)), @"height": @(CGDisplayPixelsHigh(display)),
             @"x": @(CGDisplayBounds(display).origin.x), @"y": @(CGDisplayBounds(display).origin.y),
             @"virtual": @([virtual respondsToSelector:@selector(boolValue)] && [virtual boolValue]),
@@ -155,6 +211,8 @@ static NSArray<NSDictionary *> *discover(NSString **error) {
                 row[@"name"] = [old[@"builtin"] boolValue] ? localize(@"内置显示器", @"Built-in display") : old[@"name"];
                 row[@"virtual"] = old[@"virtual"] ?: @NO;
                 if (!row[@"uuid"] && old[@"uuid"]) row[@"uuid"] = old[@"uuid"];
+                for (NSString *key in @[@"vendor", @"product", @"serial"])
+                    if (![row[key] unsignedIntValue] && old[key]) row[key] = old[key];
             }
             byID[identifier] = row;
         } else {
@@ -169,6 +227,12 @@ static NSArray<NSDictionary *> *discover(NSString **error) {
             if ([row[@"builtin"] boolValue]) row[@"name"] = localize(@"内置显示器", @"Built-in display");
             byID[identifier] = row;
         }
+    }
+    NSSet *monitors = connectedMonitors();
+    for (NSNumber *identifier in byID.allKeys) {
+        NSMutableDictionary *row = [byID[identifier] mutableCopy];
+        row[@"connected"] = connectionState(row, monitors);
+        byID[identifier] = row;
     }
     return [[byID allValues] sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
         return [a[@"id"] compare:b[@"id"]];
@@ -697,6 +761,9 @@ static NSDictionary *projectionPlan(NSArray *rows, NSString *mode, NSNumber *ext
     }
     if (![mode isEqual:@"internal"] && !external) {
         *error = localize(@"未找到第二屏幕，请先接入外置显示器。", @"Second display not found. Connect an external display first."); return nil;
+    }
+    if (![mode isEqual:@"internal"] && [external[@"connected"] isEqual:@NO]) {
+        *error = localize(@"请先连接外接显示器，再选择此模式。", @"Connect an external display before selecting this mode."); return nil;
     }
     return @{@"mode": mode, @"builtin": builtin, @"external": external ?: @{}, @"externals": externals};
 }
@@ -1336,6 +1403,40 @@ int main(void) {
         reconnectAssert(projectionPlan(@[exclusive, fixture(1, YES, NO, NO)], @"internal", nil, &error) == nil, @"exclusive mode refused", &projectionChecks);
         NSDictionary *chosen = projectionPlan(@[fixture(1, YES, YES, NO), cached, fixture(3, NO, YES, NO)], @"extend", nil, &error);
         reconnectAssert([chosen[@"external"][@"id"] isEqual:@3], @"prefer live external", &projectionChecks);
+        unsigned connectionChecks = 0;
+        NSMutableData *edid = [NSMutableData dataWithLength:128];
+        uint8_t *bytes = edid.mutableBytes;
+        const uint8_t prefix[] = {0, 255, 255, 255, 255, 255, 255, 0};
+        memcpy(bytes, prefix, sizeof(prefix));
+        bytes[8] = 0x12; bytes[9] = 0x34; bytes[10] = 0x78; bytes[11] = 0x56;
+        bytes[12] = 4; bytes[13] = 3; bytes[14] = 2; bytes[15] = 1;
+        NSString *monitor = monitorIdentity(0x1234, 0x5678, 0x01020304);
+        reconnectAssert([edidIdentity(edid) isEqual:monitor], @"EDID identity matches CoreGraphics vendor/product/serial", &connectionChecks);
+        reconnectAssert(edidIdentity([NSData data]) == nil && edidIdentity(@"invalid") == nil,
+                        @"invalid EDID ignored", &connectionChecks);
+        reconnectAssert(portMonitorIdentity(@{@"EDID": edid, @"HPD_StateDescription": @"Low"}) == nil,
+                        @"stale EDID on disconnected port ignored", &connectionChecks);
+        reconnectAssert([portMonitorIdentity(@{@"EDID": edid, @"HPD_StateDescription": @"High"}) isEqual:monitor],
+                        @"connected Apple port detected", &connectionChecks);
+        reconnectAssert([portMonitorIdentity(@{@"IODisplayEDID": edid}) isEqual:monitor],
+                        @"Intel display EDID detected", &connectionChecks);
+        NSMutableDictionary *physical = [cached mutableCopy];
+        physical[@"vendor"] = @0x1234; physical[@"product"] = @0x5678; physical[@"serial"] = @0x01020304;
+        physical[@"online"] = @NO;
+        reconnectAssert([connectionState(physical, [NSSet setWithObject:monitor]) isEqual:@YES],
+                        @"soft-disabled cached screen remains physically connected", &connectionChecks);
+        reconnectAssert([connectionState(physical, NSSet.set) isEqual:@NO], @"unplugged cached screen detected", &connectionChecks);
+        reconnectAssert([connectionState(physical, [NSSet setWithObject:@"other-monitor"]) isEqual:@NO],
+                        @"different connected monitor cannot enable cached target", &connectionChecks);
+        reconnectAssert(connectionState(physical, nil) == NSNull.null, @"failed probe stays unknown", &connectionChecks);
+        physical[@"connected"] = @NO;
+        reconnectAssert(projectionPlan(@[fixture(1, YES, YES, NO), physical], @"duplicate", @2, &error) == nil,
+                        @"disconnected external rejected before display transaction", &connectionChecks);
+        reconnectAssert(projectionPlan(@[fixture(1, YES, YES, NO), physical], @"internal", nil, &error) != nil,
+                        @"built-in only allowed without external connection", &connectionChecks);
+        physical[@"connected"] = @YES;
+        reconnectAssert(projectionPlan(@[fixture(1, YES, YES, NO), physical], @"extend", @2, &error) != nil,
+                        @"connected soft-disabled screen can be enabled", &connectionChecks);
         unsigned layoutChecks = 0;
         NSDictionary *(^positioned)(uint32_t, BOOL, int, int, BOOL) = ^NSDictionary *(uint32_t identifier, BOOL builtin, int x, int y, BOOL main) {
             NSMutableDictionary *row = [fixture(identifier, builtin, YES, NO) mutableCopy];
@@ -1409,6 +1510,7 @@ int main(void) {
         printf("15 command planning checks, 18 guard policy checks, and %u reconnect checks passed; no hardware toggled.\n", reconnectChecks);
         printf("%u projection planning checks passed.\n", projectionChecks);
         printf("%u display arrangement memory checks passed.\n", layoutChecks);
+        printf("%u physical connection checks passed.\n", connectionChecks);
         return 0;
     }
 }

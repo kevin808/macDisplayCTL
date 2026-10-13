@@ -33,7 +33,9 @@ struct Display: Decodable, Identifiable {
     let mirror: Bool
     let mirrorOf: UInt32?
     let uuid: String?
-    enum CodingKeys: String, CodingKey { case id, name, builtin, enabled, virtual, remembered, mirror, mirrorOf, uuid }
+    let connected: Bool?
+    var available: Bool { enabled || connected != false }
+    enum CodingKeys: String, CodingKey { case id, name, builtin, enabled, virtual, remembered, mirror, mirrorOf, uuid, connected }
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         func flag(_ key: CodingKeys) -> Bool {
@@ -45,12 +47,28 @@ struct Display: Decodable, Identifiable {
         remembered = flag(.remembered); mirror = flag(.mirror)
         mirrorOf = try? values.decode(UInt32.self, forKey: .mirrorOf)
         uuid = try? values.decode(String.self, forKey: .uuid)
+        connected = (try? values.decode(Bool.self, forKey: .connected))
+            ?? (try? values.decode(Int.self, forKey: .connected)).map { $0 != 0 }
     }
 }
 
 struct CommandResult {
     let code: Int32
     let output: String
+}
+
+func modeAvailable(_ mode: ProjectionMode, builtin: Display?, external: Display?) -> Bool {
+    builtin != nil && (mode == .internalOnly || external?.available == true)
+}
+
+func projectionError(_ result: CommandResult, mode: ProjectionMode, externalAvailable: Bool) -> String? {
+    guard result.code != 0 else { return nil }
+    // Unplugging is normal: refresh the disabled controls instead of showing an error.
+    if mode != .internalOnly && !externalAvailable { return nil }
+    if result.output.contains("CGError=1001") {
+        return L10n.text("The display connection is changing. Wait a moment and try again.")
+    }
+    return result.output
 }
 
 func currentProjection(_ displays: [Display], externalID: UInt32) -> ProjectionMode? {
@@ -123,7 +141,10 @@ final class ScreenModel: ObservableObject {
     }
 
     func refresh() async {
-        guard !refreshing else { return }
+        while refreshing {
+            do { try await Task.sleep(nanoseconds: 25_000_000) }
+            catch { return }
+        }
         refreshing = true
         defer { refreshing = false; loading = false }
         let result = await Backend.run(["list", "--json"])
@@ -138,11 +159,11 @@ final class ScreenModel: ObservableObject {
         lastReadError = nil
         displays = rows
         let candidates = externals
-        if let uuid = externalUUID, let matched = candidates.first(where: { $0.uuid == uuid && !$0.remembered }) {
+        if let uuid = externalUUID, let matched = candidates.first(where: { $0.uuid == uuid && $0.available }) {
             externalID = matched.id
-        } else if !candidates.contains(where: { $0.id == externalID }) {
+        } else if !candidates.contains(where: { $0.id == externalID && $0.available }) {
             externalID = candidates.first(where: { $0.enabled })?.id
-                ?? candidates.first(where: { !$0.remembered })?.id ?? candidates.first?.id ?? 0
+                ?? candidates.first(where: { $0.available })?.id ?? candidates.first?.id ?? 0
         }
         externalUUID = target?.uuid
         updateSelectedMode()
@@ -159,20 +180,31 @@ final class ScreenModel: ObservableObject {
     }
 
     func canApply(_ mode: ProjectionMode) -> Bool {
-        !busy && !loading && builtIn != nil && (mode == .internalOnly || target != nil)
+        !busy && !loading && lastReadError == nil && modeAvailable(mode, builtin: builtIn, external: target)
+    }
+
+    func modeHelp(_ mode: ProjectionMode) -> String {
+        mode != .internalOnly && target?.available != true
+            ? L10n.text("Connect an external display to use this mode") : mode.detail
     }
 
     func apply(_ mode: ProjectionMode) {
         guard canApply(mode) else { return }
         busy = true
-        let id = externalID
         Task {
+            defer { busy = false }
+            // Hot-unplug can occur between the last refresh and the click.
+            await refresh()
+            guard lastReadError == nil, modeAvailable(mode, builtin: builtIn, external: target) else { return }
+            let id = externalID, uuid = target?.uuid
             var arguments = ["project", mode.rawValue]
             if mode != .internalOnly && id != 0 { arguments.append(String(id)) }
             let result = await Backend.run(arguments)
-            busy = false
-            if result.code != 0 { errorMessage = result.output }
             await refresh()
+            let requestedDisplay = externals.first { uuid != nil ? $0.uuid == uuid : $0.id == id }
+            if let message = projectionError(result, mode: mode, externalAvailable: requestedDisplay?.available == true) {
+                errorMessage = message
+            }
         }
     }
 
@@ -243,6 +275,7 @@ struct ProjectionRow: View {
     let mode: ProjectionMode
     let selected: Bool
     let enabled: Bool
+    var hint: String? = nil
     let action: () -> Void
     @State private var hovered = false
     var body: some View {
@@ -268,7 +301,8 @@ struct ProjectionRow: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .onHover { hovered = $0 }
-        .help(mode.detail)
+        .help(hint ?? mode.detail)
+        .accessibilityHint(hint ?? mode.detail)
         .accessibilityLabel(mode.title)
         .accessibilityValue(selected ? L10n.text("Current mode") : L10n.text("Not selected"))
     }
@@ -320,7 +354,7 @@ struct ProjectionPanel: View {
             if model.externals.count > 1 {
                 Picker(L10n.text("Second display"), selection: Binding(get: { model.externalID }, set: { model.chooseExternal($0) })) {
                     ForEach(model.externals) { display in
-                        Text(display.name + (display.remembered ? L10n.text(" (Disconnected)") : "")).tag(display.id)
+                        Text(display.name + (!display.available ? L10n.text(" (Disconnected)") : "")).tag(display.id)
                     }
                 }
                 .pickerStyle(.menu)
@@ -330,7 +364,7 @@ struct ProjectionPanel: View {
             VStack(spacing: 7) {
                 ForEach(Array(ProjectionMode.allCases.enumerated()), id: \.element.id) { index, mode in
                     ProjectionRow(mode: mode, selected: model.selected == mode,
-                                  enabled: model.canApply(mode)) { model.apply(mode) }
+                                  enabled: model.canApply(mode), hint: model.modeHelp(mode)) { model.apply(mode) }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [])
                 }
             }
@@ -352,6 +386,11 @@ struct ProjectionPanel: View {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private static let displayChanged: CGDisplayReconfigurationCallBack = { _, flags, context in
+        guard !flags.contains(.beginConfigurationFlag), let context else { return }
+        let delegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
+        Task { @MainActor in await delegate.model.refresh() }
+    }
     private var window: NSWindow!
     private var item: NSStatusItem!
     private var hotKey: EventHotKeyRef?
@@ -372,6 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.submenu = editMenu; menu.addItem(edit)
         NSApp.mainMenu = menu
         model = ScreenModel()
+        CGDisplayRegisterReconfigurationCallback(Self.displayChanged, Unmanaged.passUnretained(self).toOpaque())
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 414, height: 470),
                           styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.title = L10n.text("macDisplayCtl")
@@ -427,6 +467,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showPanel(); return true
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationWillTerminate(_ notification: Notification) {
+        CGDisplayRemoveReconfigurationCallback(Self.displayChanged, Unmanaged.passUnretained(self).toOpaque())
+    }
     func applicationDidResignActive(_ notification: Notification) { hidePanel() }
     func hidePanel() { window?.orderOut(nil) }
     @objc func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -482,6 +525,31 @@ struct MacDisplayCtlApplication {
             precondition(currentProjection(fixture(true, true, extra: true), externalID: 2) == nil)
             precondition(currentProjection(fixture(true, true, extra: true, virtual: true), externalID: 2) == .extend)
             precondition(currentProjection(fixture(false, true), externalID: 999) == nil)
+            let builtin = fixture(true, false)[0]
+            func cachedExternal(_ connected: Any) -> Display {
+                let row: [String: Any] = ["id": 2, "name": "External", "builtin": false,
+                    "enabled": false, "remembered": true, "connected": connected]
+                return try! JSONDecoder().decode(Display.self, from: JSONSerialization.data(withJSONObject: row))
+            }
+            let unplugged = cachedExternal(false), softDisabled = cachedExternal(true)
+            for mode in ProjectionMode.allCases where mode != .internalOnly {
+                precondition(!modeAvailable(mode, builtin: builtin, external: unplugged))
+                precondition(!modeAvailable(mode, builtin: builtin, external: nil))
+                precondition(modeAvailable(mode, builtin: builtin, external: softDisabled))
+            }
+            precondition(modeAvailable(.internalOnly, builtin: builtin, external: unplugged))
+            precondition(!modeAvailable(.internalOnly, builtin: nil, external: softDisabled))
+            precondition(cachedExternal(NSNull()).available)
+            precondition(!cachedExternal(0).available && cachedExternal(1).available)
+            let disconnectFailure = CommandResult(code: 1, output: "CGError=1001")
+            precondition(projectionError(disconnectFailure, mode: .duplicate, externalAvailable: false) == nil)
+            precondition(projectionError(disconnectFailure, mode: .extend, externalAvailable: true)
+                == L10n.text("The display connection is changing. Wait a moment and try again."))
+            precondition(projectionError(disconnectFailure, mode: .internalOnly, externalAvailable: false) != nil)
+            precondition(projectionError(CommandResult(code: 1, output: "Permission denied"), mode: .extend,
+                externalAvailable: true) == "Permission denied")
+            precondition(projectionError(CommandResult(code: 0, output: "Done"), mode: .extend,
+                externalAvailable: true) == nil)
             let expectedTitles = L10n.language == "zh-Hans"
                 ? ["仅电脑屏幕", "复制", "扩展", "仅第二屏幕"]
                 : ["Built-in Only", "Mirror", "Extend", "External Only"]
@@ -494,7 +562,7 @@ struct MacDisplayCtlApplication {
             precondition(shouldStartRecovery(initialized: true, running: true, helperChanged: true))
             precondition(!shouldStartRecovery(initialized: true, running: false, helperChanged: true))
             precondition(!shouldStartRecovery(initialized: true, running: true, helperChanged: false))
-            print("GUI state, recovery startup policy, and localization checks passed (\(L10n.language)).")
+            print("GUI state, disconnected controls/errors, recovery startup policy, and localization checks passed (\(L10n.language)).")
             return
         }
         let application = NSApplication.shared
