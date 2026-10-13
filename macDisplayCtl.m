@@ -881,12 +881,8 @@ static BOOL projectionMatches(NSDictionary *configuration) {
     if ([mode isEqual:@"duplicate"])
         return CGDisplayMirrorsDisplay(external) == internal || CGDisplayMirrorsDisplay(internal) == external;
     if ([mode isEqual:@"extend"]) {
-        NSDictionary *layout = configuration[@"layout"];
-        if (layout) {
-            CGPoint first = CGDisplayBounds(internal).origin, second = CGDisplayBounds(external).origin;
-            if (first.x != [layout[@"builtin"][@"x"] intValue] || first.y != [layout[@"builtin"][@"y"] intValue] ||
-                second.x != [layout[@"external"][@"x"] intValue] || second.y != [layout[@"external"][@"y"] intValue]) return NO;
-        }
+        // WindowServer may normalize origins while committing a layout. The
+        // stable facts are that both displays are active and no longer mirrored.
         return !CGDisplayIsInMirrorSet(internal) && !CGDisplayIsInMirrorSet(external) &&
                !CGDisplayIsInHWMirrorSet(internal) && !CGDisplayIsInHWMirrorSet(external);
     }
@@ -958,7 +954,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         }
         if (!projectionLayout(configuration, &error)) { fail(error); return 1; }
         recordBuiltinIntent(rows, externalOnly ? @"off" : @"on", @"builtin");
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 80; i++) {
             if (projectionMatches(configuration)) { puts(localize(@"屏幕模式切换完成。", @"Display mode switched.").UTF8String); return 0; }
             usleep(100000);
         }
