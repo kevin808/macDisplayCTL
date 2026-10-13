@@ -50,7 +50,7 @@ open "build/macDisplayCtl.app"
 
 ## 应用使用方法
 
-应用默认不显示 Dock（程序坞）图标。点击菜单栏双屏图标，或按 **Control + Option + P** 打开/收起面板。面板打开时，按 `1`、`2`、`3`、`4` 选择对应模式。
+应用默认不显示 Dock（程序坞）图标。右键点击菜单栏图标（或按住 Control 点击），可以选择“退出屏幕切换”。点击菜单栏双屏图标，或按 **Control + Option + P** 打开/收起面板。面板打开时，按 `1`、`2`、`3`、`4` 选择对应模式。
 
 | 按键 | 模式 | 行为 |
 | --- | --- | --- |
@@ -129,14 +129,14 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 
 | 路径 | 用途 |
 | --- | --- |
-| `~/Library/Application Support/displayctl/displayctl` | 已安装的后台程序 |
+| `~/Library/Application Support/displayctl/macDisplayCtl` | 已安装的后台程序 |
 | `~/Library/Application Support/displayctl/displays.json` | 显示器身份缓存 |
 | `~/Library/Application Support/displayctl/guard-state.json` | 内屏偏好与待恢复状态 |
 | `~/Library/Application Support/displayctl/builtin-intent.json` | 通过本工具明确设置的内屏选择 |
 | `~/Library/LaunchAgents/local.displayctl.guard.plist` | 用户级启动项 |
 | `~/Library/Logs/displayctl-guard.log` | 后台监控日志 |
 
-已安装的数据路径和启动项标识沿用旧名称，以便升级后保留屏幕排列与恢复偏好；项目文件和应用内置程序统一使用 `macDisplayCtl`。
+已安装的后台程序名为 `macDisplayCtl`，并关联到应用的 macOS 后台活动。数据路径和启动项标识沿用旧名称，以便升级后保留屏幕排列与恢复偏好；项目文件和应用内置程序统一使用 `macDisplayCtl`。
 
 显示器缓存与状态记忆在本次系统启动期间有效。偏好可在监控重启或更新后继续衔接，系统重启后重新学习；能读取显示器 UUID 时，会用它对应显示器，以适应数字 ID 变化。
 

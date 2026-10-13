@@ -50,7 +50,7 @@ For command-line use, the `./macDisplayCtl` launcher compiles the helper on firs
 
 ## App usage
 
-The app runs without a Dock icon by default. Click the dual-display menu bar icon or press **Control + Option + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
+The app runs without a Dock icon by default. Right-click the menu bar icon (or Control-click it) to choose **Quit macDisplayCtl**. Click the dual-display menu bar icon or press **Control + Option + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
 
 | Key | Mode shown in the app | Behavior |
 | --- | --- | --- |
@@ -129,14 +129,14 @@ These paths are relative to the current user's home directory:
 
 | Path | Purpose |
 | --- | --- |
-| `~/Library/Application Support/displayctl/displayctl` | Installed background executable |
+| `~/Library/Application Support/displayctl/macDisplayCtl` | Installed background executable |
 | `~/Library/Application Support/displayctl/displays.json` | Display identity cache |
 | `~/Library/Application Support/displayctl/guard-state.json` | Built-in display preference and pending recovery state |
 | `~/Library/Application Support/displayctl/builtin-intent.json` | Explicit built-in display choices made with this tool |
 | `~/Library/LaunchAgents/local.displayctl.guard.plist` | User launch agent |
 | `~/Library/Logs/displayctl-guard.log` | Monitor log |
 
-Installed data paths and the launch agent identifier retain their legacy names so upgrades preserve saved arrangements and recovery preferences. Project files and bundled executables use `macDisplayCtl`.
+The installed background executable is named `macDisplayCtl` and is associated with the app for macOS background activity. Data paths and the launch agent identifier retain their legacy names so upgrades preserve saved arrangements and recovery preferences. Project files and bundled executables use `macDisplayCtl`.
 
 The display cache and preferences are valid for the current system boot. Preferences survive monitor restarts and updates, and are learned again after a system reboot. Display UUIDs are used when available to handle numeric ID changes.
 

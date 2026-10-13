@@ -50,7 +50,7 @@ open "build/macDisplayCtl.app"
 
 ## アプリの使い方
 
-アプリはデフォルトで Dock にアイコンを表示しません。メニューバーのディスプレイアイコンをクリックするか、**Control + Option + P** を押すとパネルを表示・収納できます。パネル表示中は `1`、`2`、`3`、`4` でモードを選択します。
+アプリはデフォルトで Dock にアイコンを表示しません。メニューバーのアイコンを右クリック（または Control を押しながらクリック）すると、終了を選択できます。メニューバーのディスプレイアイコンをクリックするか、**Control + Option + P** を押すとパネルを表示・収納できます。パネル表示中は `1`、`2`、`3`、`4` でモードを選択します。
 
 | キー | アプリ内の表示 | 動作 |
 | --- | --- | --- |
@@ -129,14 +129,14 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 
 | パス | 用途 |
 | --- | --- |
-| `~/Library/Application Support/displayctl/displayctl` | インストール済み監視プログラム |
+| `~/Library/Application Support/displayctl/macDisplayCtl` | インストール済み監視プログラム |
 | `~/Library/Application Support/displayctl/displays.json` | ディスプレイ識別情報のキャッシュ |
 | `~/Library/Application Support/displayctl/guard-state.json` | 内蔵の設定と復元待ち状態 |
 | `~/Library/Application Support/displayctl/builtin-intent.json` | 本ツールで明示した内蔵の選択 |
 | `~/Library/LaunchAgents/local.displayctl.guard.plist` | ユーザー用 LaunchAgent |
 | `~/Library/Logs/displayctl-guard.log` | 監視ログ |
 
-更新後も画面配置と復帰設定を維持するため、インストール済みのデータパスと LaunchAgent の識別子は従来の名前を使用します。プロジェクトファイルと同梱実行ファイルは `macDisplayCtl` に統一しています。
+更新後も画面配置と復帰設定を維持するため、インストール済み監視プログラムは `macDisplayCtl` という名前で、macOS のバックグラウンド活動でアプリに関連付けられます。データパスと LaunchAgent の識別子は従来の名前を使用します。プロジェクトファイルと同梱実行ファイルは `macDisplayCtl` に統一しています。
 
 キャッシュと記憶した設定は現在のシステム起動中に有効です。監視の再起動・更新後も設定を引き継ぎ、システム再起動後は再学習します。取得できる場合は UUID を使い、数値 ID が変わっても同じディスプレイを識別します。
 

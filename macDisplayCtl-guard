@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 task_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-# Retain installed paths and service identity for existing recovery preferences.
+# Retain data paths and service identity; update the installed executable name.
 task_support="$HOME/Library/Application Support/displayctl"
 task_plist="$HOME/Library/LaunchAgents/local.displayctl.guard.plist"
 task_domain="gui/$(id -u)"
@@ -32,22 +32,25 @@ case "${1-status}" in
         if [ -f "$task_plist" ]; then
             cp "$task_plist" "$task_plist.backup"
         fi
-        if [ -f "$task_support/displayctl" ]; then
+        if [ -f "$task_support/macDisplayCtl" ]; then
+            cp "$task_support/macDisplayCtl" "$task_support/macDisplayCtl.backup"
+        elif [ -f "$task_support/displayctl" ]; then
             cp "$task_support/displayctl" "$task_support/displayctl.backup"
         fi
         if [ -f "$task_dir/build/macDisplayCtl" ]; then
-            cp "$task_dir/build/macDisplayCtl" "$task_support/displayctl.new"
+            cp "$task_dir/build/macDisplayCtl" "$task_support/macDisplayCtl.new"
         else
             # A packaged .app ships the compiled helper alongside this script.
-            cp "$task_dir/macDisplayCtl" "$task_support/displayctl.new"
+            cp "$task_dir/macDisplayCtl" "$task_support/macDisplayCtl.new"
         fi
-        chmod 755 "$task_support/displayctl.new"
-        mv "$task_support/displayctl.new" "$task_support/displayctl"
-        /usr/bin/env python3 - "$task_plist" "$task_support/displayctl" "$task_log" <<'PY'
+        chmod 755 "$task_support/macDisplayCtl.new"
+        mv "$task_support/macDisplayCtl.new" "$task_support/macDisplayCtl"
+        /usr/bin/env python3 - "$task_plist" "$task_support/macDisplayCtl" "$task_log" <<'PY'
 import os, plistlib, sys
 path, binary, log = sys.argv[1:]
 value = {
     'Label': 'local.displayctl.guard',
+    'AssociatedBundleIdentifiers': ['com.github.kevin808.macDisplayCtl'],
     'ProgramArguments': [binary, 'watch'],
     'RunAtLoad': True,
     'KeepAlive': True,
@@ -83,6 +86,10 @@ with open(sys.argv[1], 'a+') as lock:
 PY
         launchctl enable "$task_service"
         launchctl bootstrap "$task_domain" "$task_plist"
+        # The previous executable is retained as a backup during migration.
+        if [ -f "$task_support/displayctl" ]; then
+            mv "$task_support/displayctl" "$task_support/displayctl.backup"
+        fi
         message '断开外屏后自动点亮内屏已启用，并设为登录时启动。\n日志：%s\n' 'Automatic built-in screen recovery after external disconnection enabled, with launch at login.\nLog: %s\n' "$task_log"
         ;;
     stop)

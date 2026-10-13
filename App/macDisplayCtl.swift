@@ -180,7 +180,7 @@ final class ScreenModel: ObservableObject {
         let result = await Backend.run(["status"], executable: "macDisplayCtl-guard")
         guardRunning = result.output.contains("state = running")
         let installed = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/displayctl/displayctl")
+            .appendingPathComponent("Library/Application Support/displayctl/macDisplayCtl")
         let bundled = Backend.resources.appendingPathComponent("macDisplayCtl")
         let helperChanged = (try? Data(contentsOf: installed)) != (try? Data(contentsOf: bundled))
         let defaults = UserDefaults.standard
@@ -391,7 +391,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: L10n.text("macDisplayCtl"))
         item.button?.target = self
-        item.button?.action = #selector(togglePanel)
+        item.button?.action = #selector(statusItemClicked(_:))
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         item.button?.toolTip = L10n.text("macDisplayCtl · ⌃⌥P")
         var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
@@ -428,6 +429,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationDidResignActive(_ notification: Notification) { hidePanel() }
     func hidePanel() { window?.orderOut(nil) }
+    @objc func statusItemClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            hidePanel()
+            let menu = NSMenu()
+            let quit = NSMenuItem(title: L10n.text("Quit macDisplayCtl"),
+                                  action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+            quit.target = NSApp
+            menu.addItem(quit)
+            item.menu = menu
+            sender.performClick(nil)
+            item.menu = nil
+        } else {
+            togglePanel()
+        }
+    }
     @objc func togglePanel() {
         if window.isVisible && NSApp.isActive { hidePanel() }
         else { showPanel() }
