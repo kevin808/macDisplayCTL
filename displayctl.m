@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
+#include <math.h>
 
 // Private WindowServer APIs; availability depends on macOS and hardware.
 typedef CGError (*DisplayListFn)(uint32_t, CGDirectDisplayID *, uint32_t *);
@@ -503,7 +504,7 @@ static NSDictionary *readSessionFile(NSString *name) {
 
 static BOOL writeSessionFile(NSString *name, NSDictionary *value, NSString **error) {
     NSString *boot = bootID();
-    if (!boot) { *error = localize(@"无法记录本次启动的内屏偏好。", @"Unable to save the built-in display preference for this boot."); return NO; }
+    if (!boot) { *error = localize(@"无法记录显示器设置。", @"Unable to save display settings."); return NO; }
     NSMutableDictionary *object = [value mutableCopy];
     object[@"boot"] = boot;
     NSError *failure = nil;
@@ -594,6 +595,84 @@ static int operationLock(BOOL wait, NSString **error) {
     close(fd); *error = localize(@"另一个屏幕切换正在进行，请稍后重试。", @"Another display operation is in progress. Try again shortly."); return -1;
 }
 
+// Layouts outlive helper processes and reboots. Numeric IDs are only safe this boot.
+static NSString *layoutIdentity(NSDictionary *row, NSString *boot) {
+    id uuid = row[@"uuid"];
+    if ([uuid isKindOfClass:NSString.class] && [uuid length]) return [@"uuid:" stringByAppendingString:uuid];
+    if (!boot.length || ![row[@"id"] isKindOfClass:NSNumber.class]) return nil;
+    return [NSString stringWithFormat:@"boot:%@:%@", boot, row[@"id"]];
+}
+
+static NSString *layoutKey(NSDictionary *builtin, NSDictionary *external, NSString *boot) {
+    NSString *first = layoutIdentity(builtin, boot), *second = layoutIdentity(external, boot);
+    if (!first || !second) return nil;
+    NSData *data = [NSJSONSerialization dataWithJSONObject:@[first, second] options:0 error:nil];
+    return [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+}
+
+static BOOL validOrigin(id origin) {
+    if (![origin isKindOfClass:NSDictionary.class]) return NO;
+    for (NSString *axis in @[@"x", @"y"]) {
+        id value = origin[axis];
+        if (![value isKindOfClass:NSNumber.class]) return NO;
+        double number = [value doubleValue];
+        if (!isfinite(number) || number < INT32_MIN || number > INT32_MAX || trunc(number) != number) return NO;
+    }
+    return YES;
+}
+
+static BOOL extendedDisplay(NSDictionary *row) {
+    return [row[@"enabled"] boolValue] && ![row[@"remembered"] boolValue] &&
+           ![row[@"virtual"] boolValue] && ![row[@"mirror"] boolValue] &&
+           ![row[@"mirrorOf"] unsignedIntValue] && validOrigin(row);
+}
+
+static NSDictionary *captureLayout(NSDictionary *builtin, NSDictionary *external) {
+    if (!extendedDisplay(builtin) || !extendedDisplay(external)) return nil;
+    double bx = [builtin[@"x"] doubleValue], by = [builtin[@"y"] doubleValue];
+    double ex = [external[@"x"] doubleValue], ey = [external[@"y"] doubleValue];
+    // Mirroring or an unfinished reconfiguration can report coincident origins.
+    if (bx == ex && by == ey) return nil;
+    double anchorX = [external[@"main"] boolValue] ? ex : bx;
+    double anchorY = [external[@"main"] boolValue] ? ey : by;
+    NSDictionary *layout = @{@"builtin": @{@"x": @(bx - anchorX), @"y": @(by - anchorY)},
+                             @"external": @{@"x": @(ex - anchorX), @"y": @(ey - anchorY)}};
+    return validOrigin(layout[@"builtin"]) && validOrigin(layout[@"external"]) ? layout : nil;
+}
+
+static NSDictionary *updatedLayouts(NSDictionary *previous, NSArray *rows, NSString *boot) {
+    NSMutableDictionary *layouts = [previous mutableCopy];
+    NSDictionary *builtin = nil;
+    for (NSDictionary *row in rows) if ([row[@"builtin"] boolValue] && ![row[@"virtual"] boolValue]) builtin = row;
+    if (!builtin) return layouts;
+    for (NSDictionary *row in rows) {
+        if ([row[@"builtin"] boolValue]) continue;
+        NSString *key = layoutKey(builtin, row, boot);
+        NSDictionary *layout = captureLayout(builtin, row);
+        if (key && layout) layouts[key] = layout;
+    }
+    return layouts;
+}
+
+static NSDictionary *loadLayouts(void) {
+    NSData *data = [NSData dataWithContentsOfFile:sessionPath(@"extended-layouts.json")];
+    id object = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![object isKindOfClass:NSDictionary.class] || ![object[@"version"] isEqual:@1] ||
+        ![object[@"layouts"] isKindOfClass:NSDictionary.class]) return @{};
+    return object[@"layouts"];
+}
+
+static NSDictionary *savedLayout(NSDictionary *layouts, NSDictionary *configuration, NSString *boot) {
+    NSString *key = layoutKey(configuration[@"builtin"], configuration[@"external"], boot);
+    id layout = key ? layouts[key] : nil;
+    if (![layout isKindOfClass:NSDictionary.class] ||
+        !validOrigin(layout[@"builtin"]) || !validOrigin(layout[@"external"])) return nil;
+    // One of the two selected screens must remain the main display at (0, 0).
+    BOOL builtinMain = [layout[@"builtin"][@"x"] intValue] == 0 && [layout[@"builtin"][@"y"] intValue] == 0;
+    BOOL externalMain = [layout[@"external"][@"x"] intValue] == 0 && [layout[@"external"][@"y"] intValue] == 0;
+    return builtinMain != externalMain ? layout : nil;
+}
+
 // Choose only one second screen; leave unrelated virtual displays untouched.
 static NSDictionary *projectionPlan(NSArray *rows, NSString *mode, NSNumber *externalID, NSString **error) {
     if (![@[@"internal", @"duplicate", @"extend", @"external"] containsObject:mode]) {
@@ -635,6 +714,14 @@ static BOOL waitEnabled(CGDirectDisplayID identifier) {
     return NO;
 }
 
+static NSDictionary *projectionOrigins(NSDictionary *configuration, int32_t builtinWidth) {
+    NSString *mode = configuration[@"mode"];
+    NSDictionary *layout = [mode isEqual:@"extend"] ? configuration[@"layout"] : nil;
+    if (layout) return layout;
+    return @{@"builtin": @{@"x": @0, @"y": @0},
+             @"external": @{@"x": [mode isEqual:@"extend"] ? @(builtinWidth) : @0, @"y": @0}};
+}
+
 static BOOL projectionLayout(NSDictionary *configuration, NSString **error) {
     NSString *mode = configuration[@"mode"];
     CGDirectDisplayID internal = [configuration[@"builtin"][@"id"] unsignedIntValue];
@@ -658,10 +745,11 @@ static BOOL projectionLayout(NSDictionary *configuration, NSString **error) {
     }
     if (status == kCGErrorSuccess && duplicate)
         status = CGConfigureDisplayMirrorOfDisplay(config, external, internal);
+    NSDictionary *origins = projectionOrigins(configuration, (int32_t)CGDisplayBounds(internal).size.width);
     if (status == kCGErrorSuccess && !externalOnly)
-        status = CGConfigureDisplayOrigin(config, internal, 0, 0);
+        status = CGConfigureDisplayOrigin(config, internal, [origins[@"builtin"][@"x"] intValue], [origins[@"builtin"][@"y"] intValue]);
     if (status == kCGErrorSuccess && !internalOnly && !duplicate)
-        status = CGConfigureDisplayOrigin(config, external, externalOnly ? 0 : (int32_t)CGDisplayBounds(internal).size.width, 0);
+        status = CGConfigureDisplayOrigin(config, external, [origins[@"external"][@"x"] intValue], [origins[@"external"][@"y"] intValue]);
     if (status == kCGErrorSuccess && externalOnly && isEnabled(internal))
         status = configureEnabled(config, internal, false);
     for (NSDictionary *row in configuration[@"externals"]) {
@@ -693,9 +781,16 @@ static BOOL projectionMatches(NSDictionary *configuration) {
     }
     if ([mode isEqual:@"duplicate"])
         return CGDisplayMirrorsDisplay(external) == internal || CGDisplayMirrorsDisplay(internal) == external;
-    if ([mode isEqual:@"extend"])
+    if ([mode isEqual:@"extend"]) {
+        NSDictionary *layout = configuration[@"layout"];
+        if (layout) {
+            CGPoint first = CGDisplayBounds(internal).origin, second = CGDisplayBounds(external).origin;
+            if (first.x != [layout[@"builtin"][@"x"] intValue] || first.y != [layout[@"builtin"][@"y"] intValue] ||
+                second.x != [layout[@"external"][@"x"] intValue] || second.y != [layout[@"external"][@"y"] intValue]) return NO;
+        }
         return !CGDisplayIsInMirrorSet(internal) && !CGDisplayIsInMirrorSet(external) &&
                !CGDisplayIsInHWMirrorSet(internal) && !CGDisplayIsInHWMirrorSet(external);
+    }
     return YES;
 }
 
@@ -709,8 +804,12 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
     @try {
         NSArray *rows = dryRun ? initialRows : discover(&error);
         if (!rows) { fail(error); return 1; }
-        NSDictionary *configuration = projectionPlan(rows, mode, externalID, &error);
+        NSMutableDictionary *configuration = [projectionPlan(rows, mode, externalID, &error) mutableCopy];
         if (!configuration) { fail(error); return 2; }
+        NSDictionary *previousLayouts = loadLayouts();
+        NSDictionary *layouts = updatedLayouts(previousLayouts, rows, bootID());
+        NSDictionary *layout = savedLayout(layouts, configuration, bootID());
+        if ([mode isEqual:@"extend"] && layout) configuration[@"layout"] = layout;
         if (dryRun) {
             NSData *data = [NSJSONSerialization dataWithJSONObject:configuration options:NSJSONWritingPrettyPrinted error:nil];
             fwrite(data.bytes, 1, data.length, stdout); putchar('\n'); return 0;
@@ -718,6 +817,11 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         BOOL externalOnly = [mode isEqual:@"external"], internalOnly = [mode isEqual:@"internal"];
         if (!externalOnly && lidState() != 0) {
             fail(localize(@"请先打开笔记本屏幕，再选择包含内置屏的模式。", @"Open the laptop lid before selecting a mode that uses the built-in display.")); return 2;
+        }
+        // Save before enabling, mirroring, or disabling can destroy the original origins.
+        if (![layouts isEqual:previousLayouts] &&
+            !writeSessionFile(@"extended-layouts.json", @{@"version": @1, @"layouts": layouts}, &error)) {
+            fail(error); return 1;
         }
         if (!saveRemembered(rows, &error)) { fail(error); return 1; }
         if (projectionMatches(configuration)) {
@@ -734,6 +838,13 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         uint32_t external = [configuration[@"external"][@"id"] unsignedIntValue];
         if ((!externalOnly && !waitEnabled(internal)) || (!internalOnly && !waitEnabled(external))) {
             fail(localize(@"目标屏幕未能启用，未停用当前屏幕。请检查连接后重试。", @"The target display could not be enabled. The current display was kept enabled. Check the connection and retry.")); return 3;
+        }
+        // With no history, retain an arrangement restored by macOS on re-enabling.
+        if ([mode isEqual:@"extend"] && !configuration[@"layout"]) {
+            NSArray *enabledRows = discover(&error);
+            NSDictionary *enabledPlan = enabledRows ? projectionPlan(enabledRows, mode, @(external), &error) : nil;
+            NSDictionary *systemLayout = enabledPlan ? captureLayout(enabledPlan[@"builtin"], enabledPlan[@"external"]) : nil;
+            if (systemLayout) configuration[@"layout"] = systemLayout;
         }
         if (!projectionLayout(configuration, &error)) { fail(error); return 1; }
         recordBuiltinIntent(rows, externalOnly ? @"off" : @"on", @"builtin");
@@ -1225,8 +1336,79 @@ int main(void) {
         reconnectAssert(projectionPlan(@[exclusive, fixture(1, YES, NO, NO)], @"internal", nil, &error) == nil, @"exclusive mode refused", &projectionChecks);
         NSDictionary *chosen = projectionPlan(@[fixture(1, YES, YES, NO), cached, fixture(3, NO, YES, NO)], @"extend", nil, &error);
         reconnectAssert([chosen[@"external"][@"id"] isEqual:@3], @"prefer live external", &projectionChecks);
+        unsigned layoutChecks = 0;
+        NSDictionary *(^positioned)(uint32_t, BOOL, int, int, BOOL) = ^NSDictionary *(uint32_t identifier, BOOL builtin, int x, int y, BOOL main) {
+            NSMutableDictionary *row = [fixture(identifier, builtin, YES, NO) mutableCopy];
+            row[@"uuid"] = builtin ? @"builtin-uuid" : @"external-uuid";
+            row[@"x"] = @(x); row[@"y"] = @(y); row[@"main"] = @(main);
+            return row;
+        };
+        NSDictionary *bottom = positioned(1, YES, 0, 0, YES);
+        NSDictionary *top = positioned(2, NO, -160, -1440, NO);
+        NSArray *vertical = @[bottom, top];
+        NSDictionary *layouts = updatedLayouts(@{}, vertical, @"boot-a");
+        NSDictionary *verticalPlan = projectionPlan(vertical, @"extend", nil, &error);
+        NSDictionary *verticalLayout = savedLayout(layouts, verticalPlan, @"boot-a");
+        reconnectAssert([verticalLayout[@"external"][@"x"] isEqual:@(-160)] &&
+                        [verticalLayout[@"external"][@"y"] isEqual:@(-1440)], @"vertical arrangement and offset retained", &layoutChecks);
+        NSData *layoutJSON = [NSJSONSerialization dataWithJSONObject:layouts options:0 error:nil];
+        layouts = [NSJSONSerialization JSONObjectWithData:layoutJSON options:0 error:nil];
+        reconnectAssert([savedLayout(layouts, verticalPlan, @"boot-a") isEqual:verticalLayout], @"layout survives process JSON round trip", &layoutChecks);
+        NSMutableDictionary *mirroredTop = [top mutableCopy];
+        mirroredTop[@"mirror"] = @YES; mirroredTop[@"mirrorOf"] = @1;
+        mirroredTop[@"x"] = @0; mirroredTop[@"y"] = @0;
+        reconnectAssert([updatedLayouts(layouts, @[bottom, mirroredTop], @"boot-a") isEqual:layouts], @"mirror does not overwrite extended arrangement", &layoutChecks);
+        NSMutableDictionary *offTop = [top mutableCopy]; offTop[@"enabled"] = @NO;
+        reconnectAssert([updatedLayouts(layouts, @[bottom, offTop], @"boot-a") isEqual:layouts], @"built-in only preserves arrangement", &layoutChecks);
+        NSMutableDictionary *offBottom = [bottom mutableCopy]; offBottom[@"enabled"] = @NO;
+        reconnectAssert([updatedLayouts(layouts, @[offBottom, top], @"boot-a") isEqual:layouts], @"external only preserves arrangement", &layoutChecks);
+        NSMutableDictionary *unplugged = [top mutableCopy]; unplugged[@"remembered"] = @YES;
+        reconnectAssert([updatedLayouts(layouts, @[bottom, unplugged], @"boot-a") isEqual:layouts], @"unplugged cache does not overwrite arrangement", &layoutChecks);
+        NSMutableDictionary *virtualTop = [top mutableCopy]; virtualTop[@"virtual"] = @YES;
+        reconnectAssert([updatedLayouts(layouts, @[bottom, virtualTop], @"boot-a") isEqual:layouts], @"virtual displays do not alter physical arrangement", &layoutChecks);
+        reconnectAssert([updatedLayouts(layouts, @[bottom, positioned(2, NO, 0, 0, NO)], @"boot-a") isEqual:layouts], @"coincident origins do not overwrite arrangement", &layoutChecks);
+        NSArray *newIDs = @[positioned(8, YES, 0, 0, YES), positioned(9, NO, 0, 900, NO)];
+        NSDictionary *newPlan = projectionPlan(newIDs, @"extend", nil, &error);
+        reconnectAssert([savedLayout(layouts, newPlan, @"boot-b") isEqual:verticalLayout], @"UUID restores after reboot and display ID change", &layoutChecks);
+        NSMutableDictionary *differentExternal = [newIDs[1] mutableCopy]; differentExternal[@"uuid"] = @"another-external";
+        NSDictionary *differentPlan = projectionPlan(@[newIDs[0], differentExternal], @"extend", nil, &error);
+        reconnectAssert(savedLayout(layouts, differentPlan, @"boot-b") == nil, @"different monitor never inherits arrangement", &layoutChecks);
+        NSDictionary *belowLayout = savedLayout(updatedLayouts(layouts, newIDs, @"boot-b"), newPlan, @"boot-b");
+        reconnectAssert([belowLayout[@"external"][@"y"] isEqual:@900], @"manual rearrangement replaces saved arrangement", &layoutChecks);
+        NSDictionary *leftMain = captureLayout(positioned(1, YES, 1920, -200, NO), positioned(2, NO, 0, 0, YES));
+        reconnectAssert([leftMain[@"builtin"][@"x"] isEqual:@1920] &&
+                        [leftMain[@"builtin"][@"y"] isEqual:@(-200)] &&
+                        [leftMain[@"external"][@"x"] isEqual:@0], @"external main display and negative offset retained", &layoutChecks);
+        NSDictionary *leftLayout = captureLayout(bottom, positioned(2, NO, -1920, 100, NO));
+        reconnectAssert([leftLayout[@"external"][@"x"] isEqual:@(-1920)], @"left arrangement retained", &layoutChecks);
+        NSMutableDictionary *noUUIDBottom = [bottom mutableCopy], *noUUIDTop = [top mutableCopy];
+        [noUUIDBottom removeObjectForKey:@"uuid"]; [noUUIDTop removeObjectForKey:@"uuid"];
+        NSDictionary *idLayouts = updatedLayouts(@{}, @[noUUIDBottom, noUUIDTop], @"boot-a");
+        NSDictionary *idPlan = projectionPlan(@[noUUIDBottom, noUUIDTop], @"extend", nil, &error);
+        reconnectAssert(savedLayout(idLayouts, idPlan, @"boot-a") != nil, @"ID fallback works within boot", &layoutChecks);
+        reconnectAssert(savedLayout(idLayouts, idPlan, @"boot-b") == nil, @"ID fallback cannot select another monitor after reboot", &layoutChecks);
+        NSString *key = layoutKey(bottom, top, @"boot-a");
+        reconnectAssert(savedLayout(@{key: @"broken"}, verticalPlan, @"boot-a") == nil, @"corrupt layout ignored", &layoutChecks);
+        reconnectAssert(!validOrigin(@{@"x": @(INFINITY), @"y": @0}) &&
+                        !validOrigin(@{@"x": @0.5, @"y": @0}) &&
+                        !validOrigin(@{@"x": @((int64_t)INT32_MAX + 1), @"y": @0}), @"invalid coordinates rejected", &layoutChecks);
+        NSDictionary *targets = projectionOrigins(@{@"mode": @"extend", @"layout": verticalLayout}, 1512);
+        reconnectAssert([targets[@"external"][@"x"] isEqual:@(-160)] &&
+                        [targets[@"external"][@"y"] isEqual:@(-1440)], @"extended transaction uses stored vertical coordinates", &layoutChecks);
+        targets = projectionOrigins(@{@"mode": @"extend", @"layout": leftMain}, 1512);
+        reconnectAssert([targets[@"builtin"][@"x"] isEqual:@1920] &&
+                        [targets[@"external"][@"x"] isEqual:@0], @"extended transaction restores external main display", &layoutChecks);
+        for (NSString *singleMode in @[@"internal", @"external", @"duplicate"]) {
+            targets = projectionOrigins(@{@"mode": singleMode, @"layout": verticalLayout}, 1512);
+            reconnectAssert([targets[@"builtin"] isEqual:@{@"x": @0, @"y": @0}] &&
+                            [targets[@"external"] isEqual:@{@"x": @0, @"y": @0}], @"single and mirror modes do not use extended origins", &layoutChecks);
+        }
+        targets = projectionOrigins(@{@"mode": @"extend"}, 1512);
+        reconnectAssert([targets[@"external"][@"x"] isEqual:@1512] &&
+                        [targets[@"external"][@"y"] isEqual:@0], @"no-history fallback uses logical display width", &layoutChecks);
         printf("15 command planning checks, 18 guard policy checks, and %u reconnect checks passed; no hardware toggled.\n", reconnectChecks);
         printf("%u projection planning checks passed.\n", projectionChecks);
+        printf("%u display arrangement memory checks passed.\n", layoutChecks);
         return 0;
     }
 }

@@ -16,6 +16,7 @@ macDisplayCtl is a macOS display utility with a native SwiftUI/AppKit app, **mac
 ## Features
 
 - Switch between built-in only, mirror, extend, and external only modes.
+- Remember display positions and the main display when returning to extend mode.
 - Choose which physical external display acts as the second screen.
 - Open the translucent panel from the menu bar or with **Control + Option + P**.
 - Enable, disable, or toggle displays by type or ID from the command line.
@@ -55,10 +56,12 @@ Click the dual-display menu bar icon or press **Control + Option + P** to open o
 | --- | --- | --- |
 | `1` | Built-in Only | Enable the built-in display, exit mirroring, and disable physical external displays. |
 | `2` | Mirror | Enable the built-in and selected external display, with the external display mirroring the built-in display. |
-| `3` | Extend | Enable both displays, exit mirroring, and place the external display to the right of the built-in display. |
+| `3` | Extend | Enable both displays, exit mirroring, and restore the previous extended arrangement. |
 | `4` | External Only | Enable and verify the selected external display, then exit mirroring and disable the built-in display. |
 
-The second-screen selector appears in the header only when multiple physical external targets are available; with one external display, it is selected automatically. Projection modes use the built-in display and that external display; other enabled physical external displays are disabled. Virtual displays do not participate. Cached, unplugged displays are marked **Disconnected**. If enabling the target fails, currently usable displays remain available. Mirroring resolutions depend on macOS and the displays.
+The second-screen selector appears below the title only when multiple physical external targets are available; with one external display, it is selected automatically. Projection modes use the built-in display and that external display; other enabled physical external displays are disabled. Virtual displays do not participate. Cached, unplugged displays are marked **Disconnected**. If enabling the target fails, currently usable displays remain available. Mirroring resolutions depend on macOS and the displays.
+
+Before switching modes, the app saves the current extended positions and main display for each physical display pair. Returning to Extend restores that arrangement, including vertical positions and offsets. Changes made in macOS Display settings are captured on the next mode switch. Saved arrangements use display UUIDs to survive app restarts and system reboots; if UUIDs are unavailable, numeric IDs are used only within the current boot. With no saved arrangement, the app keeps a valid arrangement supplied by macOS, or places the external display on the right as a fallback. An arrangement lost before this feature was installed must be set again once in macOS Display settings.
 
 Click the desktop or another app to hide the panel automatically. You can also click the large close button in the top-right corner or press **Esc**. Reopen it from the menu bar or with **Control + Option + P**; **Command + Q** quits the app. The panel contains the four projection modes. Failed operations show an alert. Hiding the panel, quitting the app, or closing the interactive menu does not stop the independent monitor.
 
