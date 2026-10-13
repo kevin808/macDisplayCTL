@@ -2,7 +2,7 @@
 "About macDisplayCtl" = "关于屏幕切换";
 "Built-in Only" = "仅电脑屏幕";
 "Close panel" = "关闭面板";
-"Connect an external display to use this mode" = "请先连接外接显示器，再使用此模式";
+"No external display detected" = "未发现外接显示器";
 "Copy" = "复制";
 "Current mode" = "当前模式";
 "Edit" = "编辑";

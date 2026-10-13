@@ -63,8 +63,7 @@ func modeAvailable(_ mode: ProjectionMode, builtin: Display?, external: Display?
 
 func projectionError(_ result: CommandResult, mode: ProjectionMode, externalAvailable: Bool) -> String? {
     guard result.code != 0 else { return nil }
-    // Unplugging is normal: refresh the disabled controls instead of showing an error.
-    if mode != .internalOnly && !externalAvailable { return nil }
+    if mode != .internalOnly && !externalAvailable { return L10n.text("No external display detected") }
     if result.output.contains("CGError=1001") {
         return L10n.text("The display connection is changing. Wait a moment and try again.")
     }
@@ -179,23 +178,22 @@ final class ScreenModel: ObservableObject {
         selected = currentProjection(displays, externalID: externalID)
     }
 
-    func canApply(_ mode: ProjectionMode) -> Bool {
-        !busy && !loading && lastReadError == nil && modeAvailable(mode, builtin: builtIn, external: target)
-    }
-
-    func modeHelp(_ mode: ProjectionMode) -> String {
-        mode != .internalOnly && target?.available != true
-            ? L10n.text("Connect an external display to use this mode") : mode.detail
+    func canApply() -> Bool {
+        !busy && !loading && lastReadError == nil && builtIn != nil
     }
 
     func apply(_ mode: ProjectionMode) {
-        guard canApply(mode) else { return }
+        guard canApply() else { return }
         busy = true
         Task {
             defer { busy = false }
             // Hot-unplug can occur between the last refresh and the click.
             await refresh()
-            guard lastReadError == nil, modeAvailable(mode, builtin: builtIn, external: target) else { return }
+            guard lastReadError == nil else { return }
+            guard modeAvailable(mode, builtin: builtIn, external: target) else {
+                if mode != .internalOnly { errorMessage = L10n.text("No external display detected") }
+                return
+            }
             let id = externalID, uuid = target?.uuid
             var arguments = ["project", mode.rawValue]
             if mode != .internalOnly && id != 0 { arguments.append(String(id)) }
@@ -275,7 +273,6 @@ struct ProjectionRow: View {
     let mode: ProjectionMode
     let selected: Bool
     let enabled: Bool
-    var hint: String? = nil
     let action: () -> Void
     @State private var hovered = false
     var body: some View {
@@ -301,8 +298,8 @@ struct ProjectionRow: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .onHover { hovered = $0 }
-        .help(hint ?? mode.detail)
-        .accessibilityHint(hint ?? mode.detail)
+        .help(mode.detail)
+        .accessibilityHint(mode.detail)
         .accessibilityLabel(mode.title)
         .accessibilityValue(selected ? L10n.text("Current mode") : L10n.text("Not selected"))
     }
@@ -364,7 +361,7 @@ struct ProjectionPanel: View {
             VStack(spacing: 7) {
                 ForEach(Array(ProjectionMode.allCases.enumerated()), id: \.element.id) { index, mode in
                     ProjectionRow(mode: mode, selected: model.selected == mode,
-                                  enabled: model.canApply(mode), hint: model.modeHelp(mode)) { model.apply(mode) }
+                                  enabled: model.canApply()) { model.apply(mode) }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [])
                 }
             }
@@ -373,14 +370,21 @@ struct ProjectionPanel: View {
         .frame(width: 414, height: model.externals.count > 1 ? 508 : 470)
         .background { AcrylicBackground() }
         .onExitCommand(perform: onClose)
-        .alert(L10n.text("Unable to complete the operation"), isPresented: Binding(
+        .alert(errorMessageTitle, isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
         )) {
             Button(L10n.text("OK"), role: .cancel) { model.errorMessage = nil }
         } message: {
-            Text(model.errorMessage ?? "")
+            if model.errorMessage != L10n.text("No external display detected") {
+                Text(model.errorMessage ?? "")
+            }
         }
+    }
+
+    private var errorMessageTitle: String {
+        model.errorMessage == L10n.text("No external display detected")
+            ? L10n.text("No external display detected") : L10n.text("Unable to complete the operation")
     }
 }
 
@@ -542,7 +546,10 @@ struct MacDisplayCtlApplication {
             precondition(cachedExternal(NSNull()).available)
             precondition(!cachedExternal(0).available && cachedExternal(1).available)
             let disconnectFailure = CommandResult(code: 1, output: "CGError=1001")
-            precondition(projectionError(disconnectFailure, mode: .duplicate, externalAvailable: false) == nil)
+            for mode in ProjectionMode.allCases where mode != .internalOnly {
+                precondition(projectionError(disconnectFailure, mode: mode, externalAvailable: false)
+                    == L10n.text("No external display detected"))
+            }
             precondition(projectionError(disconnectFailure, mode: .extend, externalAvailable: true)
                 == L10n.text("The display connection is changing. Wait a moment and try again."))
             precondition(projectionError(disconnectFailure, mode: .internalOnly, externalAvailable: false) != nil)
@@ -562,7 +569,9 @@ struct MacDisplayCtlApplication {
             precondition(shouldStartRecovery(initialized: true, running: true, helperChanged: true))
             precondition(!shouldStartRecovery(initialized: true, running: false, helperChanged: true))
             precondition(!shouldStartRecovery(initialized: true, running: true, helperChanged: false))
-            print("GUI state, disconnected controls/errors, recovery startup policy, and localization checks passed (\(L10n.language)).")
+            precondition(L10n.text("No external display detected") == (L10n.language == "zh-Hans"
+                ? "未发现外接显示器" : "No external display detected"))
+            print("GUI state, missing display prompts, recovery startup policy, and localization checks passed (\(L10n.language)).")
             return
         }
         let application = NSApplication.shared

@@ -760,10 +760,10 @@ static NSDictionary *projectionPlan(NSArray *rows, NSString *mode, NSNumber *ext
                    ([external[@"remembered"] boolValue] && ![row[@"remembered"] boolValue])) external = row;
     }
     if (![mode isEqual:@"internal"] && !external) {
-        *error = localize(@"未找到第二屏幕，请先接入外置显示器。", @"Second display not found. Connect an external display first."); return nil;
+        *error = localize(@"未发现外接显示器。", @"No external display detected."); return nil;
     }
     if (![mode isEqual:@"internal"] && [external[@"connected"] isEqual:@NO]) {
-        *error = localize(@"请先连接外接显示器，再选择此模式。", @"Connect an external display before selecting this mode."); return nil;
+        *error = localize(@"未发现外接显示器。", @"No external display detected."); return nil;
     }
     return @{@"mode": mode, @"builtin": builtin, @"external": external ?: @{}, @"externals": externals};
 }
