@@ -19,9 +19,19 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build Universal app
-        run: ./build-app.sh
+        run: |
+          set -o pipefail
+          if ! ./build-app.sh 2>&1 | tee build-output.txt; then
+            python3 - <<'PYLOG'
+          from pathlib import Path
+          message = Path('build-output.txt').read_text()[-12000:]
+          message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print(f'::error title=Compiler output::{message}')
+          PYLOG
+            exit 1
+          fi
         env:
           ARCHS: arm64 x86_64
       - name: Test
