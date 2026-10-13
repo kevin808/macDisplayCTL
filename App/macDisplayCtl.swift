@@ -230,39 +230,60 @@ func shouldStartRecovery(initialized: Bool, running: Bool, helperChanged: Bool) 
     (!initialized && !running) || (running && helperChanged)
 }
 
+// Original vector artwork: device silhouettes, matching tiles, and a shared desktop link.
 struct ScreenPair: View {
     let mode: ProjectionMode
     var body: some View {
-        Canvas { context, size in
+        Canvas { context, _ in
+            let accent = Color(red: 0.12, green: 0.48, blue: 0.51)
+            let laptop = CGRect(x: 3, y: 13, width: 22, height: 15)
+            let monitor = CGRect(x: 37, y: 6, width: 23, height: 20)
             let firstActive = mode != .externalOnly
             let secondActive = mode != .internalOnly
-            func drawScreen(_ rect: CGRect, laptop: Bool, active: Bool, opposite: Bool) {
-                let color = Color.primary.opacity(active ? 0.84 : 0.32)
-                context.stroke(Path(roundedRect: rect, cornerRadius: 3.5), with: .color(color), lineWidth: 1.65)
+
+            func stroke(_ points: [CGPoint], active: Bool) {
+                var path = Path()
+                path.addLines(points)
+                context.stroke(path, with: .color(.primary.opacity(active ? 0.8 : 0.25)),
+                               style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+            }
+            func screen(_ rect: CGRect, active: Bool) {
+                let outline = Path(roundedRect: rect, cornerRadius: 2.5)
+                if active { context.fill(outline, with: .color(accent.opacity(0.12))) }
+                context.stroke(outline, with: .color(.primary.opacity(active ? 0.8 : 0.25)),
+                               style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
                 if active {
-                    var arc = Path()
-                    if opposite {
-                        arc.move(to: CGPoint(x: rect.minX + 2, y: rect.minY + 2))
-                        arc.addQuadCurve(to: CGPoint(x: rect.maxX - 2, y: rect.maxY - 2),
-                                         control: CGPoint(x: rect.maxX - 1, y: rect.minY + 2))
-                        arc.addLine(to: CGPoint(x: rect.minX + 2, y: rect.maxY - 2))
-                    } else {
-                        arc.move(to: CGPoint(x: rect.maxX - 2, y: rect.minY + 3))
-                        arc.addQuadCurve(to: CGPoint(x: rect.midX, y: rect.maxY - 2),
-                                         control: CGPoint(x: rect.midX, y: rect.minY + 4))
-                        arc.addLine(to: CGPoint(x: rect.maxX - 2, y: rect.maxY - 2))
+                    let tile: CGRect
+                    switch mode {
+                    case .duplicate:
+                        tile = CGRect(x: rect.midX - 4, y: rect.midY - 3, width: 8, height: 6)
+                    case .extend:
+                        let isLaptop = rect == laptop
+                        tile = CGRect(x: isLaptop ? rect.maxX - 10 : rect.minX + 3,
+                                      y: rect.midY - 3, width: 7, height: 6)
+                    default:
+                        tile = CGRect(x: rect.midX - 3, y: rect.midY - 3, width: 6, height: 6)
                     }
-                    context.stroke(arc, with: .color(color), lineWidth: 1.3)
-                }
-                if laptop {
-                    var base = Path()
-                    base.move(to: CGPoint(x: rect.minX - 2, y: rect.maxY + 4))
-                    base.addLine(to: CGPoint(x: rect.maxX + 2, y: rect.maxY + 4))
-                    context.stroke(base, with: .color(color), lineWidth: 1.65)
+                    context.fill(Path(roundedRect: tile, cornerRadius: 1.2), with: .color(accent))
                 }
             }
-            drawScreen(CGRect(x: 2, y: 11, width: 23, height: 15), laptop: true, active: firstActive, opposite: false)
-            drawScreen(CGRect(x: 33, y: 6, width: 26, height: 21), laptop: false, active: secondActive, opposite: mode == .extend)
+            screen(laptop, active: firstActive)
+            screen(monitor, active: secondActive)
+            // A tapered keyboard base distinguishes the Mac from the external monitor.
+            stroke([CGPoint(x: 1, y: 31), CGPoint(x: 5, y: 33),
+                    CGPoint(x: 23, y: 33), CGPoint(x: 27, y: 31)], active: firstActive)
+            stroke([CGPoint(x: 48.5, y: 26), CGPoint(x: 48.5, y: 32)], active: secondActive)
+            stroke([CGPoint(x: 43, y: 32), CGPoint(x: 54, y: 32)], active: secondActive)
+            if mode == .duplicate {
+                // Equal content on both displays.
+                stroke([CGPoint(x: 29, y: 18), CGPoint(x: 33, y: 18)], active: true)
+                stroke([CGPoint(x: 29, y: 22), CGPoint(x: 33, y: 22)], active: true)
+            } else if mode == .extend {
+                // One desktop continues between two distinct screens.
+                stroke([CGPoint(x: 27, y: 20), CGPoint(x: 35, y: 20)], active: true)
+                stroke([CGPoint(x: 29, y: 18), CGPoint(x: 27, y: 20), CGPoint(x: 29, y: 22)], active: true)
+                stroke([CGPoint(x: 33, y: 18), CGPoint(x: 35, y: 20), CGPoint(x: 33, y: 22)], active: true)
+            }
         }
         .frame(width: 62, height: 38)
         .accessibilityHidden(true)
