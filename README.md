@@ -50,7 +50,7 @@ For command-line use, the `./displayctl` launcher compiles the helper on first u
 
 ## App usage
 
-Click the dual-display menu bar icon or press **Control + Option + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
+The app runs without a Dock icon by default. Click the dual-display menu bar icon or press **Control + Option + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
 
 | Key | Mode shown in the app | Behavior |
 | --- | --- | --- |
