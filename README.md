@@ -13,6 +13,10 @@ English | [Simplified Chinese](README_CN.md) | [Japanese](README_JA.md)
 
 macDisplayCtl is a macOS display utility with a native SwiftUI/AppKit app, **macDisplayCtl.app**, and a command-line tool, `macDisplayCtl`. It provides four projection modes, individual display controls, and a background monitor that restores the built-in display when external displays disconnect. The app enables it by default on first launch.
 
+## Screenshots
+
+<img src="docs/images/panel-en.png" alt="macDisplayCtl" width="414">
+
 ## Features
 
 - Switch between built-in only, mirror, extend, and external only modes.
@@ -34,6 +38,14 @@ The app, command-line tool, and monitor messages follow the system language: Chi
 - Python 3 available as `python3` to install, update, or start the background monitor, and to run the verification suite.
 
 The built app bundles the compiled command-line helper and can run without the source checkout. The build script uses ad-hoc signing; it does not perform Developer ID notarization.
+
+## Download
+
+Download the [Universal app for Apple Silicon and Intel](https://github.com/kevin808/macDisplayCtl/releases/download/continuous/macDisplayCtl-universal.zip), unzip it, and move `macDisplayCtl.app` to `/Applications`. No compilation is required. This link follows the latest successful `main` build; versioned releases are available on the [Releases page](https://github.com/kevin808/macDisplayCtl/releases).
+
+The app uses ad-hoc signing and is not notarized. If blocked by macOS, allow it in **System Settings > Privacy & Security**. Background recovery requires `python3`.
+
+GitHub Actions builds and tests every pull request and push to `main`. Successful `main` builds update the downloadable development release; pushing a `v*` tag publishes a versioned release. Downloads include `SHA256SUMS.txt` for verification.
 
 ## Build from source
 
@@ -57,8 +69,8 @@ Global shortcuts **Shift + Option + 1/2/3/4** select Built-in Only, Extend, Mirr
 | Key | Mode shown in the app | Behavior |
 | --- | --- | --- |
 | `1` | Built-in Only | Enable the built-in display, exit mirroring, and disable physical external displays. |
-| `2` | Mirror | Enable the built-in and selected external display, with the external display mirroring the built-in display. |
-| `3` | Extend | Enable both displays, exit mirroring, and restore the previous extended arrangement. |
+| `2` | Extend | Enable both displays, exit mirroring, and restore the previous extended arrangement. |
+| `3` | Mirror | Enable the built-in and selected external display, with the external display mirroring the built-in display. |
 | `4` | External Only | Enable and verify the selected external display, then exit mirroring and disable the built-in display. |
 
 Mode buttons remain clickable when no external display is connected. Selecting Mirror, Extend, or External Only shows **No external display detected** without attempting a display configuration. The same prompt appears if the external display disconnects during a failed switch. A physically connected display that was disabled by the app can still be enabled again. Display changes refresh the panel automatically, and each switch checks the connection again before applying. A temporary configuration rejection shows a plain-language retry prompt.

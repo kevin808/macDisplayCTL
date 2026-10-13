@@ -13,6 +13,10 @@
 
 macDisplayCtl 是一个 macOS 显示器管理工具，提供原生 SwiftUI/AppKit 应用 **屏幕切换**（`macDisplayCtl.app`） 和命令行工具 `macDisplayCtl`。支持四种投影模式、单独启停显示器，以及在外屏断开时恢复内置屏的后台监控。应用首次启动时默认启用此功能。
 
+## 应用截图
+
+<img src="docs/images/panel-zh-Hans.png" alt="macDisplayCtl" width="414">
+
 ## 主要功能
 
 - 在仅内置屏、复制、扩展、仅外置屏四种模式之间切换。
@@ -34,6 +38,14 @@ macDisplayCtl 是一个 macOS 显示器管理工具，提供原生 SwiftUI/AppKi
 - 安装、更新、启动后台监控及运行验证套件需要可通过 `python3` 调用的 Python 3。
 
 构建后的应用内置已编译的命令行核心，运行时无需保留源码目录。构建脚本使用 ad-hoc 签名，不执行 Developer ID 公证。
+
+## 下载使用
+
+下载 [Apple Silicon / Intel 通用版应用](https://github.com/kevin808/macDisplayCtl/releases/download/continuous/macDisplayCtl-universal.zip)，解压后将 `macDisplayCtl.app` 拖到“应用程序”即可，无需自行编译。此链接提供 `main` 分支最新成功构建的开发版；版本发布可在 [Releases 页面](https://github.com/kevin808/macDisplayCtl/releases)查看。
+
+应用使用 ad-hoc 签名，尚未进行 Apple 公证。若 macOS 阻止打开，请在**系统设置 > 隐私与安全性**中允许打开。后台自动恢复功能需要 `python3`。
+
+GitHub Actions 会在 PR 和推送到 `main` 时自动构建并测试；`main` 构建成功后更新开发版下载，推送 `v*` 标签时发布对应版本。下载页面同时提供 `SHA256SUMS.txt` 校验文件。
 
 ## 从源码构建
 
@@ -57,8 +69,8 @@ open "build/macDisplayCtl.app"
 | 按键 | 模式 | 行为 |
 | --- | --- | --- |
 | `1` | 仅电脑屏幕 | 启用内置屏，退出镜像并停用实体外置屏。 |
-| `2` | 复制 | 启用内置屏与所选外屏，外屏镜像内置屏。 |
-| `3` | 扩展 | 启用两块屏幕，退出镜像，恢复之前的扩展排列。 |
+| `2` | 扩展 | 启用两块屏幕，退出镜像，恢复之前的扩展排列。 |
+| `3` | 复制 | 启用内置屏与所选外屏，外屏镜像内置屏。 |
 | `4` | 仅第二屏幕 | 先启用并确认所选外屏，再退出镜像、停用内置屏。 |
 
 没有外接显示器时，模式按钮仍可点击。选择“复制、扩展、仅第二屏幕”时，会提示“未发现外接显示器”，不会尝试提交显示配置；切换失败且发现外屏已断开时，也显示相同提示。仍接着线、只是被应用关闭的外屏可以重新启用。显示器变化会自动刷新面板，每次切换前也会重新检查连接；系统暂时拒绝配置时，显示易懂的稍候重试提示。

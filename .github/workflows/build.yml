@@ -1,0 +1,83 @@
+name: Build macOS app
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Universal app
+        run: ./build-app.sh
+        env:
+          ARCHS: arm64 x86_64
+      - name: Test
+        run: ./test.sh
+      - name: Verify architectures and package
+        run: |
+          for binary in build/macDisplayCtl.app/Contents/MacOS/macDisplayCtl build/macDisplayCtl.app/Contents/Resources/macDisplayCtl; do
+            archs="$(lipo -archs "$binary")"
+            [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]]
+          done
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent build/macDisplayCtl.app dist/macDisplayCtl-universal.zip
+          cd dist
+          shasum -a 256 macDisplayCtl-universal.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macDisplayCtl-universal
+          path: dist/*
+          retention-days: 30
+
+  release:
+    needs: build
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: macDisplayCtl-universal
+          path: dist
+      - name: Publish downloadable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_REF: ${{ github.ref }}
+          BUILD_TAG: ${{ github.ref_name }}
+          BUILD_SHA: ${{ github.sha }}
+        run: |
+          cat > notes.md <<EOF_NOTES
+          Universal macOS app for Apple Silicon and Intel. Requires macOS 13 or later.
+
+          Download macDisplayCtl-universal.zip, unzip, and move macDisplayCtl.app to Applications.
+          This build uses ad-hoc signing and is not notarized. If blocked, allow it in System Settings > Privacy & Security.
+          Background recovery requires Python 3 available as python3.
+
+          Source commit: $BUILD_SHA
+          EOF_NOTES
+          if [[ "$BUILD_REF" == refs/tags/v* ]]; then
+            gh release create "$BUILD_TAG" dist/* --verify-tag --title "$BUILD_TAG" --notes-file notes.md
+          else
+            if gh release view continuous > /dev/null 2>&1; then
+              gh release upload continuous dist/* --clobber
+              gh api "repos/$GH_REPO/git/refs/tags/continuous" -X PATCH -f sha="$BUILD_SHA" -F force=true
+              gh release edit continuous --notes-file notes.md
+            else
+              gh release create continuous dist/* --target "$BUILD_SHA" --title "Latest development build" --prerelease --notes-file notes.md
+            fi
+          fi
