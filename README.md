@@ -50,7 +50,7 @@ For command-line use, the `./macDisplayCtl` launcher compiles the helper on firs
 
 ## App usage
 
-The app runs without a Dock icon by default. Right-click the menu bar icon (or Control-click it) to choose **Quit macDisplayCtl**. Click the dual-display menu bar icon or press **Control + Option + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
+The app runs without a Dock icon by default. Left-click the menu bar icon to choose **Show Main Window**, **Built-in Only**, **Extend**, **Mirror**, **External Only**, or **Quit**. Right-click has no menu. Press **Control + Option + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
 
 | Key | Mode shown in the app | Behavior |
 | --- | --- | --- |

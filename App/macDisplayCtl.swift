@@ -182,11 +182,11 @@ final class ScreenModel: ObservableObject {
         !busy && !loading && lastReadError == nil && builtIn != nil
     }
 
-    func apply(_ mode: ProjectionMode) {
+    func apply(_ mode: ProjectionMode, completion: (() -> Void)? = nil) {
         guard canApply() else { return }
         busy = true
         Task {
-            defer { busy = false }
+            defer { busy = false; completion?() }
             // Hot-unplug can occur between the last refresh and the click.
             await refresh()
             guard lastReadError == nil else { return }
@@ -457,7 +457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: L10n.text("macDisplayCtl"))
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked(_:))
-        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        item.button?.sendAction(on: [.leftMouseUp])
         item.button?.toolTip = L10n.text("macDisplayCtl · ⌃⌥P")
         var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
@@ -498,19 +498,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidResignActive(_ notification: Notification) { hidePanel() }
     func hidePanel() { window?.orderOut(nil) }
     @objc func statusItemClicked(_ sender: NSStatusBarButton) {
-        let event = NSApp.currentEvent
-        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
-            hidePanel()
-            let menu = NSMenu()
-            let quit = NSMenuItem(title: L10n.text("Quit macDisplayCtl"),
-                                  action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-            quit.target = NSApp
-            menu.addItem(quit)
-            item.menu = menu
-            sender.performClick(nil)
-            item.menu = nil
-        } else {
-            togglePanel()
+        guard NSApp.currentEvent?.modifierFlags.contains(.control) != true else { return }
+        hidePanel()
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let show = NSMenuItem(title: L10n.text("Show Main Window"),
+                              action: #selector(showMainWindow), keyEquivalent: "")
+        show.target = self
+        menu.addItem(show)
+        menu.addItem(.separator())
+        for mode in [ProjectionMode.internalOnly, .extend, .duplicate, .externalOnly] {
+            let entry = NSMenuItem(title: mode.title, action: #selector(selectMenuMode(_:)), keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = mode.rawValue
+            entry.state = model.selected == mode ? .on : .off
+            entry.isEnabled = model.canApply()
+            menu.addItem(entry)
+        }
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: L10n.text("Quit"),
+                              action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        menu.addItem(quit)
+        item.menu = menu
+        sender.performClick(nil)
+        item.menu = nil
+    }
+    @objc private func showMainWindow() { showPanel() }
+    @objc private func selectMenuMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = ProjectionMode(rawValue: raw) else { return }
+        model.apply(mode) { [weak self] in
+            guard let self, self.model.errorMessage != nil else { return }
+            self.showPanel()
         }
     }
     @objc func togglePanel() {

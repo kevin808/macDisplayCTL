@@ -24,3 +24,5 @@
 "Use only the selected external display" = "只使用选中的外置显示器";
 "macDisplayCtl · ⌃⌥P" = "屏幕切换 · ⌃⌥P";
 "macDisplayCtl" = "屏幕切换";
+"Show Main Window" = "显示主界面";
+"Quit" = "退出";
