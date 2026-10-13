@@ -76,7 +76,7 @@ jobs:
 
           Download macDisplayCtl-universal.zip, unzip, and move macDisplayCtl.app to Applications.
           This build uses ad-hoc signing and is not notarized. If blocked, allow it in System Settings > Privacy & Security.
-          Background recovery requires Python 3 available as python3.
+          The app and background recovery require no Python or developer tools.
 
           Source commit: $BUILD_SHA
           EOF_NOTES

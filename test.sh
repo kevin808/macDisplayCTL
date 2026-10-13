@@ -13,6 +13,7 @@ if [ -x "$task_dir/build/macDisplayCtl.app/Contents/MacOS/macDisplayCtl" ]; then
         env -u MACDISPLAYCTL_LANGUAGE "$task_dir/build/macDisplayCtl.app/Contents/MacOS/macDisplayCtl" --self-test -AppleLanguages "($task_language)"
     done
     codesign --verify --deep --strict "$task_dir/build/macDisplayCtl.app"
+    python3 "$task_dir/tests/guard_install.py"
 fi
 python3 "$task_dir/tests/localization.py"
 sh -n "$task_dir/macDisplayCtl" "$task_dir/macDisplayCtl-guard" "$task_dir/macDisplayCtl.command" "$task_dir/build-app.sh"

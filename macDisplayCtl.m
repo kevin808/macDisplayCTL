@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <math.h>
+#include <errno.h>
 
 // Private WindowServer APIs; availability depends on macOS and hardware.
 typedef CGError (*DisplayListFn)(uint32_t, CGDirectDisplayID *, uint32_t *);
@@ -643,6 +644,32 @@ static void recordBuiltinIntent(NSArray *rows, NSString *action, NSString *targe
     }
 }
 
+// Installer-only command: wait for launchd's previous watcher without Python.
+static int waitForGuardLock(NSString *path) {
+    int fd = open(path.fileSystemRepresentation, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        fail(localize(@"无法打开监控锁。", @"Unable to open the monitor lock."));
+        return 1;
+    }
+    NSTimeInterval deadline = NSProcessInfo.processInfo.systemUptime + 5.0;
+    for (;;) {
+        if (flock(fd, LOCK_EX | LOCK_NB) == 0) { close(fd); return 0; }
+        int failure = errno;
+        if (failure != EWOULDBLOCK && failure != EAGAIN && failure != EINTR) {
+            close(fd);
+            fail(localize(@"无法检查监控锁。", @"Unable to check the monitor lock."));
+            return 1;
+        }
+        if (NSProcessInfo.processInfo.systemUptime >= deadline) {
+            close(fd);
+            fail(localize(@"原监控尚未停止，请停止手动启动的 watch 后再重试。",
+                          @"The previous monitor has not stopped. Stop any manually started watch process and retry."));
+            return 1;
+        }
+        usleep(100000);
+    }
+}
+
 static int operationLock(BOOL wait, NSString **error) {
     NSError *failure = nil;
     NSString *directory = [cachePath() stringByDeletingLastPathComponent];
@@ -1145,6 +1172,7 @@ static int watch(BOOL dryRun, BOOL once) {
 #ifndef DISPLAYCTL_TEST
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        if (argc == 3 && !strcmp(argv[1], "--wait-guard-lock")) return waitForGuardLock(@(argv[2]));
         if (argc == 2 && !strcmp(argv[1], "language")) {
             puts(usesChinese() ? "zh-Hans" : "en"); return 0;
         }

@@ -35,7 +35,7 @@ macDisplayCtl 是一个 macOS 显示器管理工具，提供原生 SwiftUI/AppKi
 
 - macOS 13 Ventura 或更高版本。显示控制依赖私有系统接口，兼容性取决于 macOS 版本和硬件。
 - 从源码构建需要 Xcode 或包含 Clang、Swift 的 Xcode Command Line Tools。
-- 安装、更新、启动后台监控及运行验证套件需要可通过 `python3` 调用的 Python 3。
+- 仅开发验证套件需要 Python 3；下载的应用及后台自动恢复均不依赖 Python。
 
 构建后的应用内置已编译的命令行核心，运行时无需保留源码目录。构建脚本使用 ad-hoc 签名，不执行 Developer ID 公证。
 
@@ -43,7 +43,7 @@ macDisplayCtl 是一个 macOS 显示器管理工具，提供原生 SwiftUI/AppKi
 
 下载 [Apple Silicon / Intel 通用版应用](https://github.com/kevin808/macDisplayCtl/releases/download/continuous/macDisplayCtl-universal.zip)，解压后将 `macDisplayCtl.app` 拖到“应用程序”即可，无需自行编译。此链接提供 `main` 分支最新成功构建的开发版；版本发布可在 [Releases 页面](https://github.com/kevin808/macDisplayCtl/releases)查看。
 
-应用使用 ad-hoc 签名，尚未进行 Apple 公证。若 macOS 阻止打开，请在**系统设置 > 隐私与安全性**中允许打开。后台自动恢复功能需要 `python3`。
+应用使用 ad-hoc 签名，尚未进行 Apple 公证。若 macOS 阻止打开，请在**系统设置 > 隐私与安全性**中允许打开。后台自动恢复无需安装 Python 或开发工具。
 
 GitHub Actions 会在 PR 和推送到 `main` 时自动构建并测试；`main` 构建成功后更新开发版下载，推送 `v*` 标签时发布对应版本。下载页面同时提供 `SHA256SUMS.txt` 校验文件。
 

@@ -42,45 +42,31 @@ case "${1-status}" in
         fi
         chmod 755 "$task_support/macDisplayCtl.new"
         mv "$task_support/macDisplayCtl.new" "$task_support/macDisplayCtl"
-        /usr/bin/env python3 - "$task_plist" "$task_support/macDisplayCtl" "$task_log" <<'PY'
-import os, plistlib, sys
-path, binary, log = sys.argv[1:]
-value = {
-    'Label': 'local.macDisplayCtl.guard',
-    'AssociatedBundleIdentifiers': ['com.github.kevin808.macDisplayCtl'],
-    'ProgramArguments': [binary, 'watch'],
-    'RunAtLoad': True,
-    'KeepAlive': True,
-    'ProcessType': 'Background',
-    'LimitLoadToSessionType': 'Aqua',
-    'ThrottleInterval': 30,
-    'StandardOutPath': log,
-    'StandardErrorPath': log,
-}
-with open(path + '.new', 'wb') as output:
-    plistlib.dump(value, output)
-os.chmod(path + '.new', 0o600)
-os.replace(path + '.new', path)
-PY
+        # plutil is included with macOS; it safely escapes paths in the plist.
+        task_new_plist="$task_plist.new"
+        (umask 077; /usr/bin/plutil -create xml1 "$task_new_plist")
+        /usr/bin/plutil -insert Label -string "$task_label" "$task_new_plist"
+        /usr/bin/plutil -insert AssociatedBundleIdentifiers -array "$task_new_plist"
+        /usr/bin/plutil -insert AssociatedBundleIdentifiers.0 -string com.github.kevin808.macDisplayCtl "$task_new_plist"
+        /usr/bin/plutil -insert ProgramArguments -array "$task_new_plist"
+        /usr/bin/plutil -insert ProgramArguments.0 -string "$task_support/macDisplayCtl" "$task_new_plist"
+        /usr/bin/plutil -insert ProgramArguments.1 -string watch "$task_new_plist"
+        /usr/bin/plutil -insert RunAtLoad -bool YES "$task_new_plist"
+        /usr/bin/plutil -insert KeepAlive -bool YES "$task_new_plist"
+        /usr/bin/plutil -insert ProcessType -string Background "$task_new_plist"
+        /usr/bin/plutil -insert LimitLoadToSessionType -string Aqua "$task_new_plist"
+        /usr/bin/plutil -insert ThrottleInterval -integer 30 "$task_new_plist"
+        /usr/bin/plutil -insert StandardOutPath -string "$task_log" "$task_new_plist"
+        /usr/bin/plutil -insert StandardErrorPath -string "$task_log" "$task_new_plist"
+        chmod 600 "$task_new_plist"
+        /usr/bin/plutil -lint "$task_new_plist" >/dev/null
+        mv "$task_new_plist" "$task_plist"
         plutil -lint "$task_plist" >/dev/null
         if launchctl print "$task_service" >/dev/null 2>&1; then
             launchctl bootout "$task_service"
         fi
         # bootout may return before the previous watcher has released its lock.
-        /usr/bin/env python3 - "$task_support/guard.lock" <<'PY'
-import fcntl, os, sys, time
-with open(sys.argv[1], 'a+') as lock:
-    deadline = time.monotonic() + 5
-    while True:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            fcntl.flock(lock, fcntl.LOCK_UN)
-            break
-        except BlockingIOError:
-            if time.monotonic() >= deadline:
-                raise SystemExit('原监控尚未停止，请停止手动启动的 watch 后再重试。' if os.environ.get('MACDISPLAYCTL_LANGUAGE') == 'zh-Hans' else 'The previous monitor has not stopped. Stop any manually started watch process and retry.')
-            time.sleep(0.1)
-PY
+        "$task_support/macDisplayCtl" --wait-guard-lock "$task_support/guard.lock"
         launchctl enable "$task_service"
         launchctl bootstrap "$task_domain" "$task_plist"
         message '断开外屏后自动点亮内屏已启用，并设为登录时启动。\n日志：%s\n' 'Automatic built-in screen recovery after external disconnection enabled, with launch at login.\nLog: %s\n' "$task_log"

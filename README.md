@@ -35,7 +35,7 @@ The app, command-line tool, and monitor messages follow the system language: Chi
 
 - macOS 13 Ventura or later. Display control depends on private system APIs and varies by macOS version and hardware.
 - Xcode or Xcode Command Line Tools with Clang and Swift to build from source.
-- Python 3 available as `python3` to install, update, or start the background monitor, and to run the verification suite.
+- Python 3 is needed only to run the development verification suite. The downloaded app and background recovery do not require Python.
 
 The built app bundles the compiled command-line helper and can run without the source checkout. The build script uses ad-hoc signing; it does not perform Developer ID notarization.
 
@@ -43,7 +43,7 @@ The built app bundles the compiled command-line helper and can run without the s
 
 Download the [Universal app for Apple Silicon and Intel](https://github.com/kevin808/macDisplayCtl/releases/download/continuous/macDisplayCtl-universal.zip), unzip it, and move `macDisplayCtl.app` to `/Applications`. No compilation is required. This link follows the latest successful `main` build; versioned releases are available on the [Releases page](https://github.com/kevin808/macDisplayCtl/releases).
 
-The app uses ad-hoc signing and is not notarized. If blocked by macOS, allow it in **System Settings > Privacy & Security**. Background recovery requires `python3`.
+The app uses ad-hoc signing and is not notarized. If blocked by macOS, allow it in **System Settings > Privacy & Security**. Background recovery works without installing Python or developer tools.
 
 GitHub Actions builds and tests every pull request and push to `main`. Successful `main` builds update the downloadable development release; pushing a `v*` tag publishes a versioned release. Downloads include `SHA256SUMS.txt` for verification.
 

@@ -35,7 +35,7 @@ macDisplayCtl は、SwiftUI/AppKit 製のネイティブアプリ **macDisplayCt
 
 - macOS 13 Ventura 以降。ディスプレイ制御は非公開システム API に依存するため、対応状況は macOS のバージョンとハードウェアによって異なります。
 - ソースからのビルドには Xcode、または Clang と Swift を含む Xcode Command Line Tools。
-- バックグラウンド監視のインストール、更新、起動および検証の実行には `python3` として実行できる Python 3。
+- Python 3 は開発用テストの実行にのみ必要です。配布アプリと自動復旧には不要です。
 
 ビルド済みアプリにはコンパイル済みのコマンドラインヘルパーが含まれ、ソースディレクトリなしで実行できます。ビルドスクリプトは ad-hoc 署名を使用し、Developer ID による公証は行いません。
 
@@ -43,7 +43,7 @@ macDisplayCtl は、SwiftUI/AppKit 製のネイティブアプリ **macDisplayCt
 
 [Apple Silicon / Intel 対応の Universal アプリ](https://github.com/kevin808/macDisplayCtl/releases/download/continuous/macDisplayCtl-universal.zip)をダウンロードし、解凍して `macDisplayCtl.app` を「アプリケーション」に移動してください。コンパイルは不要です。このリンクは `main` の最新成功ビルドを提供します。バージョン別の配布は [Releases](https://github.com/kevin808/macDisplayCtl/releases) を参照してください。
 
-アプリは ad-hoc 署名で、Apple の公証は受けていません。ブロックされた場合は**システム設定 > プライバシーとセキュリティ**で許可してください。自動復旧には `python3` が必要です。
+アプリは ad-hoc 署名で、Apple の公証は受けていません。ブロックされた場合は**システム設定 > プライバシーとセキュリティ**で許可してください。自動復旧のために Python や開発ツールをインストールする必要はありません。
 
 GitHub Actions は PR と `main` へのプッシュでビルドとテストを実行します。成功した `main` ビルドは開発版を更新し、`v*` タグはバージョン付きリリースを作成します。検証用の `SHA256SUMS.txt` も配布します。
 
