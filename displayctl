@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+task_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ "${1-}" = guard ]; then
+    shift
+    exec "$task_dir/guardctl" "$@"
+fi
+task_binary="$task_dir/build/displayctl"
+if [ ! -x "$task_binary" ] || [ "$task_dir/displayctl.m" -nt "$task_binary" ]; then
+    mkdir -p "$task_dir/build"
+    xcrun clang -mmacosx-version-min=13.0 -fobjc-arc -O2 -Wall -Wextra \
+        -framework Foundation -framework CoreGraphics -framework IOKit \
+        "$task_dir/displayctl.m" -o "$task_binary"
+fi
+exec "$task_binary" "$@"

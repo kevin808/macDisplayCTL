@@ -1,0 +1,103 @@
+#!/bin/sh
+set -eu
+task_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+task_support="$HOME/Library/Application Support/displayctl"
+task_plist="$HOME/Library/LaunchAgents/local.displayctl.guard.plist"
+task_domain="gui/$(id -u)"
+task_label="local.displayctl.guard"
+task_service="$task_domain/$task_label"
+task_log="$HOME/Library/Logs/displayctl-guard.log"
+MACDISPLAYCTL_LANGUAGE=$("$task_dir/displayctl" language)
+export MACDISPLAYCTL_LANGUAGE
+message() {
+    task_chinese=$1
+    task_english=$2
+    shift 2
+    if [ "$MACDISPLAYCTL_LANGUAGE" = zh-Hans ]; then
+        printf "$task_chinese" "$@"
+    else
+        printf "$task_english" "$@"
+    fi
+}
+if [ "$#" -gt 1 ]; then
+    message '用法：displayctl guard start|stop|status\n' 'Usage: displayctl guard start|stop|status\n' >&2
+    exit 2
+fi
+case "${1-status}" in
+    start)
+        # Build and validate read-only before changing the installed service.
+        "$task_dir/displayctl" watch --dry-run --once >/dev/null
+        mkdir -p "$task_support" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+        if [ -f "$task_plist" ]; then
+            cp "$task_plist" "$task_plist.backup"
+        fi
+        if [ -f "$task_support/displayctl" ]; then
+            cp "$task_support/displayctl" "$task_support/displayctl.backup"
+        fi
+        if [ -f "$task_dir/build/displayctl" ]; then
+            cp "$task_dir/build/displayctl" "$task_support/displayctl.new"
+        else
+            # A packaged .app ships the compiled helper alongside this script.
+            cp "$task_dir/displayctl" "$task_support/displayctl.new"
+        fi
+        chmod 755 "$task_support/displayctl.new"
+        mv "$task_support/displayctl.new" "$task_support/displayctl"
+        /usr/bin/env python3 - "$task_plist" "$task_support/displayctl" "$task_log" <<'PY'
+import os, plistlib, sys
+path, binary, log = sys.argv[1:]
+value = {
+    'Label': 'local.displayctl.guard',
+    'ProgramArguments': [binary, 'watch'],
+    'RunAtLoad': True,
+    'KeepAlive': True,
+    'ProcessType': 'Background',
+    'LimitLoadToSessionType': 'Aqua',
+    'ThrottleInterval': 30,
+    'StandardOutPath': log,
+    'StandardErrorPath': log,
+}
+with open(path + '.new', 'wb') as output:
+    plistlib.dump(value, output)
+os.chmod(path + '.new', 0o600)
+os.replace(path + '.new', path)
+PY
+        plutil -lint "$task_plist" >/dev/null
+        if launchctl print "$task_service" >/dev/null 2>&1; then
+            launchctl bootout "$task_service"
+        fi
+        # bootout may return before the previous watcher has released its lock.
+        /usr/bin/env python3 - "$task_support/guard.lock" <<'PY'
+import fcntl, os, sys, time
+with open(sys.argv[1], 'a+') as lock:
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise SystemExit('原监控尚未停止，请停止手动启动的 watch 后再重试。' if os.environ.get('MACDISPLAYCTL_LANGUAGE') == 'zh-Hans' else 'The previous monitor has not stopped. Stop any manually started watch process and retry.')
+            time.sleep(0.1)
+PY
+        launchctl enable "$task_service"
+        launchctl bootstrap "$task_domain" "$task_plist"
+        message '兜底与状态记忆监控已启用，并设为登录时启动。\n日志：%s\n' 'Recovery and state memory monitor enabled, with launch at login.\nLog: %s\n' "$task_log"
+        ;;
+    stop)
+        launchctl disable "$task_service"
+        if launchctl print "$task_service" >/dev/null 2>&1; then
+            launchctl bootout "$task_service"
+        fi
+        message '兜底监控已停止，登录自动启动也已关闭。屏幕状态保持不变。\n' 'Monitor stopped and launch at login disabled. Display state is unchanged.\n'
+        ;;
+    status)
+        task_output=$(launchctl print "$task_service" 2>/dev/null) || {
+            message '兜底监控未运行。启用：displayctl guard start\n' 'Monitor is not running. Enable with: displayctl guard start\n'
+            exit 0
+        }
+        printf '%s\n' "$task_output" | /usr/bin/awk '/state =|pid =|last exit code =/ {print}'
+        message '日志：%s\n' 'Log: %s\n' "$task_log"
+        ;;
+    *) message '用法：displayctl guard start|stop|status\n' 'Usage: displayctl guard start|stop|status\n' >&2; exit 2 ;;
+esac

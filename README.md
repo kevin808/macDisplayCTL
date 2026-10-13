@@ -1,0 +1,170 @@
+# macDisplayCtl
+
+<div align="center">
+
+**Switch macOS display modes from a native panel or the command line.**
+
+English | [Simplified Chinese](README_CN.md) | [Japanese](README_JA.md)
+
+![macOS 13+](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)
+![Swift](https://img.shields.io/badge/Swift-F05138?logo=swift&logoColor=white)
+
+</div>
+
+macDisplayCtl is a macOS display utility with a native SwiftUI/AppKit app, **macDisplayCtl.app**, and a command-line tool, `displayctl`. It provides four projection modes, individual display controls, and an optional background monitor that restores the built-in display when external displays disconnect.
+
+## Features
+
+- Switch between built-in only, mirror, extend, and external only modes.
+- Choose which physical external display acts as the second screen.
+- Open the translucent panel from the menu bar or with **Control + Option + P**.
+- Enable, disable, or toggle displays by type or ID from the command line.
+- Preview changes with `--dry-run` and list displays as JSON for scripts.
+- Protect the last enabled non-virtual display from being disabled by default.
+- Restore the built-in display after external displays disconnect, then restore its previous state after reconnection.
+- Run the recovery monitor independently of the app, with optional launch at login.
+
+The app, command-line tool, and monitor messages follow the system language: Chinese uses a Simplified Chinese interface, and other languages use English. The app is named **macDisplayCtl** in English. Documentation is available in English, Simplified Chinese, and Japanese.
+
+## Requirements
+
+- macOS 13 Ventura or later. Display control depends on private system APIs and varies by macOS version and hardware.
+- Xcode or Xcode Command Line Tools with Clang and Swift to build from source.
+- Python 3 available as `python3` to install, update, or start the background monitor, and to run the verification suite.
+
+The built app bundles the compiled command-line helper and can run without the source checkout. The build script uses ad-hoc signing; it does not perform Developer ID notarization.
+
+## Build from source
+
+```sh
+git clone https://github.com/kevin808/macDisplayCtl.git
+cd macDisplayCtl
+./build-app.sh
+open "build/macDisplayCtl.app"
+```
+
+The app is generated at `build/macDisplayCtl.app` and can be copied to `/Applications`. If macOS blocks it, allow it in **System Settings > Privacy & Security**.
+
+For command-line use, the `./displayctl` launcher compiles the helper on first use and rebuilds it when `displayctl.m` changes. You can also double-click [`macDisplayCtl.command`](macDisplayCtl.command) for an interactive menu in the same language.
+
+## App usage
+
+Click the dual-display menu bar icon or press **Control + Option + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
+
+| Key | Mode shown in the app | Behavior |
+| --- | --- | --- |
+| `1` | Built-in Only | Enable the built-in display, exit mirroring, and disable physical external displays. |
+| `2` | Mirror | Enable the built-in and selected external display, with the external display mirroring the built-in display. |
+| `3` | Extend | Enable both displays, exit mirroring, and place the external display to the right of the built-in display. |
+| `4` | External Only | Enable and verify the selected external display, then exit mirroring and disable the built-in display. |
+
+If several physical external displays are available, choose the second screen at the bottom of the panel. Projection modes use the built-in display and that external display; other enabled physical external displays are disabled. Virtual displays do not participate. Cached, unplugged displays are marked **Disconnected**. If enabling the target fails, currently usable displays remain available. Mirroring resolutions depend on macOS and the displays.
+
+The back arrow collapses the panel, and **Command + Q** quits the app. The protection switch at the bottom controls the recovery monitor and its launch-at-login setting. Quitting the app or closing the interactive menu does not stop the independent monitor.
+
+When the app opens, it updates a running monitor if the installed helper differs from the bundled helper. A monitor that has been stopped manually stays stopped.
+
+## Language
+
+The app follows the macOS preferred language, including per-app settings in **System Settings > General > Language & Region > Applications**. Restart the app after changing its language. The application bundle keeps the portable filename `macDisplayCtl.app`; Finder uses its localized display name.
+
+The standalone command-line tool and interactive menu follow the system language. To override it for a command, set `MACDISPLAYCTL_LANGUAGE`:
+
+```sh
+MACDISPLAYCTL_LANGUAGE=en ./displayctl --help
+MACDISPLAYCTL_LANGUAGE=zh-Hans ./displayctl --help
+```
+
+## Command-line usage
+
+Run these commands from the repository directory. Replace example numeric IDs with IDs from `list`; they may change after a reboot or reconnection.
+
+```sh
+./displayctl list                         # List displays and IDs
+./displayctl list --json                  # JSON output
+./displayctl off builtin                  # Disable the built-in display
+./displayctl on builtin                   # Enable the built-in display
+./displayctl off external                 # Disable all external displays
+./displayctl on external                  # Enable all external displays
+./displayctl toggle 2                     # Toggle display ID 2
+./displayctl on all                       # Enable all recognized displays
+./displayctl off builtin --dry-run        # Preview without changing displays
+./displayctl project internal             # Built-in only
+./displayctl project duplicate 3          # Mirror to external display ID 3
+./displayctl project extend 3             # Extend to external display ID 3
+./displayctl project external 3           # External display ID 3 only
+./displayctl project extend --dry-run     # Preview the projection plan
+./displayctl --help
+```
+
+By default, the tool refuses to disable the last enabled non-virtual display. A display scheduled to be enabled in the same operation does not count as an available fallback. To explicitly allow all displays to be disabled, use `./displayctl off all --allow-all-off`. Stop the recovery monitor first if all displays should remain disabled; otherwise it can restore the built-in display while the lid is open.
+
+Exit codes: `0` means success, no change needed, or a successful preview; `1` means an API or transaction failure; `2` means invalid arguments or a protection refusal; `3` means the transaction was committed but the expected state was not observed within two seconds.
+
+## Recovery monitor
+
+```sh
+./displayctl guard status                 # Show monitor status
+./displayctl guard start                  # Install/update, start, and enable at login
+./displayctl guard stop                   # Stop and disable launch at login
+./displayctl watch --dry-run --once        # Inspect displays, lid, and recovery decisions
+```
+
+When the last usable non-virtual display disappears and the built-in display is disabled, the monitor waits for that state to persist for at least one second before temporarily enabling the built-in display. Recovery requires an open lid; a closed or unknown lid state defers recovery.
+
+After a physical external display reconnects and remains stable for at least two seconds, the monitor restores the previous built-in display state. It checks again that a usable physical external display exists before disabling the built-in display. The monitor never disables external displays.
+
+The initial preference is learned while an external display is connected. Later choices are observed while an external display is connected and the lid is open. Temporary recovery does not overwrite that preference. To explicitly keep the built-in display enabled after reconnection, run `./displayctl on builtin` while disconnected, even if it is already enabled. Changes made through other apps during disconnection cannot reliably be distinguished from automatic system recovery.
+
+The monitor listens for display and lid events and checks every five seconds. Fallback retries are at least ten seconds apart, with a sixty-second cooldown after every three attempts. Reconnection restoration retries are at least ten seconds apart. After a long sleep, it waits for stability again. Display changes and the monitor share an operation lock.
+
+No `sudo` or system-wide launch agent is required. After updating the source, run `./displayctl guard start` to update the installed monitor. Installation keeps `.backup` copies of the previous executable and launch agent configuration.
+
+## Local data and logs
+
+These paths are relative to the current user's home directory:
+
+| Path | Purpose |
+| --- | --- |
+| `~/Library/Application Support/displayctl/displayctl` | Installed background executable |
+| `~/Library/Application Support/displayctl/displays.json` | Display identity cache |
+| `~/Library/Application Support/displayctl/guard-state.json` | Built-in display preference and pending recovery state |
+| `~/Library/Application Support/displayctl/builtin-intent.json` | Explicit built-in display choices made with this tool |
+| `~/Library/LaunchAgents/local.displayctl.guard.plist` | User launch agent |
+| `~/Library/Logs/displayctl-guard.log` | Monitor log |
+
+The display cache and preferences are valid for the current system boot. Preferences survive monitor restarts and updates, and are learned again after a system reboot. Display UUIDs are used when available to handle numeric ID changes.
+
+A cached display may be physically unplugged. `on all` does not guarantee hardware rediscovery. If a cached target fails, use `list` to find a valid ID and enable that display explicitly.
+
+## Development and verification
+
+```sh
+./build-app.sh
+./test.sh
+```
+
+The test script runs simulated command planning, recovery policy, reconnection memory, and projection planning checks without toggling hardware. When a built app is available, it also runs GUI state decoding checks and verifies the app signature. Shell syntax and Git diff whitespace are checked as well. These checks do not establish compatibility with every display or Mac model.
+
+| File | Purpose |
+| --- | --- |
+| [`displayctl.m`](displayctl.m) | Objective-C display control, monitor, and planning tests |
+| [`displayctl`](displayctl) | Automatic compilation launcher |
+| [`guardctl`](guardctl) | User launch agent management |
+| [`App/ScreenSwitch.swift`](App/ScreenSwitch.swift) | SwiftUI/AppKit panel |
+| [`App/Localization.swift`](App/Localization.swift), [`App/Resources`](App/Resources) | Language selection and localized app resources |
+| [`tests/localization.py`](tests/localization.py) | Translation and CLI language regression checks |
+| [`App/MakeIcon.swift`](App/MakeIcon.swift) | App icon generation |
+| [`App/Info.plist`](App/Info.plist) | App metadata |
+| [`build-app.sh`](build-app.sh) | App build and ad-hoc signing |
+| [`test.sh`](test.sh) | Verification entry point |
+
+## Limitations
+
+- Display enable/disable removes or restores a display in the macOS layout; it is not a DDC hardware power command.
+- The tool uses the private `CGSConfigureDisplayEnabled` API. Intel Macs, some M3 built-in displays, and certain virtual or third-party display solutions may not support disabling or reconnecting displays correctly.
+- Projection modes require a built-in display. Virtual display detection depends on flags reported by macOS.
+- Changes apply to the current login session rather than permanent display configuration. The tool checks transaction return codes and verifies the resulting state for up to two seconds; failed configuration transactions are cancelled.
+- Other display-management software may override changes. The monitor retries according to its cooldown policy.
+
+When reporting an issue, include the macOS version, Mac model, display connection type, the command or projection mode used, and relevant log output.

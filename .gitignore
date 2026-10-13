@@ -1,0 +1,13 @@
+# Local build outputs
+/build/
+
+# Machine-specific verification snapshots and logs
+/validation.json
+/guard-validation.json
+/reconnect-validation.json
+*.log
+
+# Local backups and macOS metadata
+*.backup
+.DS_Store
+._*
