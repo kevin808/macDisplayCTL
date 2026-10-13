@@ -348,13 +348,13 @@ struct ProjectionPanel: View {
             HStack(spacing: 12) {
                 Text(L10n.text("Project")).font(.system(size: 25, weight: .medium))
                 HStack(spacing: 4) {
-                    Text("⇧⌥").font(.system(size: 13))
+                    Text("⌃⇧").font(.system(size: 13))
                     Text("P").font(.system(size: 14))
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.3)))
-                .help(L10n.text("Open the panel with Shift + Option + P"))
+                .help(L10n.text("Open the panel with Ctrl + Shift + P"))
                 Spacer(minLength: 4)
                 if model.busy { ProgressView().controlSize(.small) }
                 Button(action: onClose) {
@@ -458,7 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked(_:))
         item.button?.sendAction(on: [.leftMouseUp])
-        item.button?.toolTip = L10n.text("macDisplayCtl · ⇧⌥P")
+        item.button?.toolTip = L10n.text("macDisplayCtl · ⌃⇧P")
         var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
             guard let context, let event else { return OSStatus(eventNotHandledErr) }
@@ -482,7 +482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let keys = [kVK_ANSI_P, kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_4]
         for (index, key) in keys.enumerated() {
             var reference: EventHotKeyRef?
-            let result = RegisterEventHotKey(UInt32(key), UInt32(shiftKey | optionKey),
+            let result = RegisterEventHotKey(UInt32(key), UInt32(controlKey | shiftKey),
                                             EventHotKeyID(signature: 0x53435754, id: UInt32(index + 1)),
                                             GetApplicationEventTarget(), 0, &reference)
             if result == noErr, let reference { hotKeys.append(reference) }
@@ -525,13 +525,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.autoenablesItems = false
         let show = NSMenuItem(title: L10n.text("Show Main Window"),
                               action: #selector(showMainWindow), keyEquivalent: "p")
-        show.keyEquivalentModifierMask = [.shift, .option]
+        show.keyEquivalentModifierMask = [.control, .shift]
         show.target = self
         menu.addItem(show)
         menu.addItem(.separator())
         for (index, mode) in ProjectionMode.allCases.enumerated() {
             let entry = NSMenuItem(title: mode.title, action: #selector(selectMenuMode(_:)), keyEquivalent: String(index + 1))
-            entry.keyEquivalentModifierMask = [.shift, .option]
+            entry.keyEquivalentModifierMask = [.control, .shift]
             entry.target = self
             entry.representedObject = mode.rawValue
             entry.state = model.selected == mode ? .on : .off

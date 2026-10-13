@@ -12,7 +12,7 @@
 "Mirror" = "Mirror";
 "Not selected" = "Not selected";
 "OK" = "OK";
-"Open the panel with Shift + Option + P" = "Open the panel with Shift + Option + P";
+"Open the panel with Ctrl + Shift + P" = "Open the panel with Ctrl + Shift + P";
 "Project" = "Project";
 "Quit macDisplayCtl" = "Quit macDisplayCtl";
 "Second display" = "Second display";
@@ -22,7 +22,7 @@
 "Unable to read displays. Reopen the panel to retry." = "Unable to read displays. Reopen the panel to retry.";
 "Use only the built-in Mac display" = "Use only the built-in Mac display";
 "Use only the selected external display" = "Use only the selected external display";
-"macDisplayCtl · ⇧⌥P" = "macDisplayCtl · ⇧⌥P";
+"macDisplayCtl · ⌃⇧P" = "macDisplayCtl · ⌃⇧P";
 "macDisplayCtl" = "macDisplayCtl";
 "Show Main Window" = "Show Main Window";
 "Quit" = "Quit";
