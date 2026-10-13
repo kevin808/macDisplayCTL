@@ -824,7 +824,12 @@ static BOOL projectionLayout(NSDictionary *configuration, NSString **error) {
     BOOL duplicate = [mode isEqual:@"duplicate"];
     // The surviving screen must be usable BEFORE disabling any screen.
     CGDirectDisplayID survivor = externalOnly ? external : internal;
-    if (!isEnabled(survivor) || (!internalOnly && !externalOnly && !isEnabled(external))) {
+    BOOL anyExternalEnabled = NO;
+    for (NSDictionary *row in configuration[@"externals"])
+        if (isEnabled([row[@"id"] unsignedIntValue])) { anyExternalEnabled = YES; break; }
+    if ((!externalOnly && !isEnabled(survivor)) ||
+        (externalOnly && !anyExternalEnabled) ||
+        (!internalOnly && !externalOnly && !isEnabled(external))) {
         *error = localize(@"目标屏幕尚不可用，保留当前屏幕。", @"Target display is not yet usable. Keeping the current display."); return NO;
     }
     CGDisplayConfigRef config = NULL;
@@ -848,7 +853,7 @@ static BOOL projectionLayout(NSDictionary *configuration, NSString **error) {
         status = configureEnabled(config, internal, false);
     for (NSDictionary *row in configuration[@"externals"]) {
         uint32_t identifier = [row[@"id"] unsignedIntValue];
-        if (!isEnabled(identifier) || (!internalOnly && identifier == external)) continue;
+        if (externalOnly || !isEnabled(identifier) || (!internalOnly && identifier == external)) continue;
         if (status == kCGErrorSuccess) status = configureEnabled(config, identifier, false);
     }
     if (status != kCGErrorSuccess) {
@@ -871,7 +876,7 @@ static BOOL projectionMatches(NSDictionary *configuration) {
     if (!internalOnly && !isEnabled(external)) return NO;
     for (NSDictionary *row in configuration[@"externals"]) {
         uint32_t identifier = [row[@"id"] unsignedIntValue];
-        if ((internalOnly || identifier != external) && isEnabled(identifier)) return NO;
+        if (!externalOnly && (internalOnly || identifier != external) && isEnabled(identifier)) return NO;
     }
     if ([mode isEqual:@"duplicate"])
         return CGDisplayMirrorsDisplay(external) == internal || CGDisplayMirrorsDisplay(internal) == external;
@@ -925,12 +930,23 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         NSMutableArray *enable = [NSMutableArray array];
         if (!externalOnly && ![configuration[@"builtin"][@"enabled"] boolValue])
             [enable addObject:@{@"display": configuration[@"builtin"], @"enabled": @YES}];
-        if (!internalOnly && ![configuration[@"external"][@"enabled"] boolValue])
-            [enable addObject:@{@"display": configuration[@"external"], @"enabled": @YES}];
+        if (!internalOnly) {
+            if (externalOnly) {
+                for (NSDictionary *row in configuration[@"externals"])
+                    if (![row[@"enabled"] boolValue])
+                        [enable addObject:@{@"display": row, @"enabled": @YES}];
+            } else if (![configuration[@"external"][@"enabled"] boolValue]) {
+                [enable addObject:@{@"display": configuration[@"external"], @"enabled": @YES}];
+            }
+        }
         if (enable.count && !apply(enable, &error)) { fail(error); return 1; }
         uint32_t internal = [configuration[@"builtin"][@"id"] unsignedIntValue];
         uint32_t external = [configuration[@"external"][@"id"] unsignedIntValue];
-        if ((!externalOnly && !waitEnabled(internal)) || (!internalOnly && !waitEnabled(external))) {
+        BOOL allExternalReady = YES;
+        if (externalOnly) for (NSDictionary *row in configuration[@"externals"])
+            allExternalReady = allExternalReady && waitEnabled([row[@"id"] unsignedIntValue]);
+        if ((!externalOnly && !waitEnabled(internal)) ||
+            (externalOnly && !allExternalReady) || (!internalOnly && !externalOnly && !waitEnabled(external))) {
             fail(localize(@"目标屏幕未能启用，未停用当前屏幕。请检查连接后重试。", @"The target display could not be enabled. The current display was kept enabled. Check the connection and retry.")); return 3;
         }
         // With no history, retain an arrangement restored by macOS on re-enabling.
@@ -1431,6 +1447,11 @@ int main(void) {
         reconnectAssert(projectionPlan(@[exclusive, fixture(1, YES, NO, NO)], @"internal", nil, &error) == nil, @"exclusive mode refused", &projectionChecks);
         NSDictionary *chosen = projectionPlan(@[fixture(1, YES, YES, NO), cached, fixture(3, NO, YES, NO)], @"extend", nil, &error);
         reconnectAssert([chosen[@"external"][@"id"] isEqual:@3], @"prefer live external", &projectionChecks);
+        NSDictionary *externalOnlyMany = projectionPlan(@[fixture(1, YES, YES, NO),
+                                                          fixture(2, NO, YES, NO),
+                                                          fixture(3, NO, YES, NO)], @"external", nil, &error);
+        reconnectAssert(externalOnlyMany != nil && [externalOnlyMany[@"externals"] count] == 2,
+                        @"external-only accepts all physical externals", &projectionChecks);
         unsigned connectionChecks = 0;
         NSMutableData *edid = [NSMutableData dataWithLength:128];
         uint8_t *bytes = edid.mutableBytes;

@@ -8,7 +8,7 @@
 "Edit" = "Edit";
 "Extend your desktop onto the second display" = "Extend your desktop onto the second display";
 "Extend" = "Extend";
-"External Only" = "External Only";
+"External Displays Only" = "External Displays Only";
 "Mirror" = "Mirror";
 "Not selected" = "Not selected";
 "OK" = "OK";
@@ -21,7 +21,7 @@
 "The display connection is changing. Wait a moment and try again." = "The display connection is changing. Wait a moment and try again.";
 "Unable to read displays. Reopen the panel to retry." = "Unable to read displays. Reopen the panel to retry.";
 "Use only the built-in Mac display" = "Use only the built-in Mac display";
-"Use only the selected external display" = "Use only the selected external display";
+"Use only external displays" = "Use only external displays";
 "macDisplayCtl · ⌃⇧P" = "macDisplayCtl · ⌃⇧P";
 "macDisplayCtl" = "macDisplayCtl";
 "Show Main Window" = "Show Main Window";

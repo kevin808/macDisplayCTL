@@ -10,7 +10,7 @@ enum ProjectionMode: String, CaseIterable, Identifiable {
         case .internalOnly: return L10n.text("Built-in Only")
         case .duplicate: return L10n.text("Mirror")
         case .extend: return L10n.text("Extend")
-        case .externalOnly: return L10n.text("External Only")
+        case .externalOnly: return L10n.text("External Displays Only")
         }
     }
     var detail: String {
@@ -18,7 +18,7 @@ enum ProjectionMode: String, CaseIterable, Identifiable {
         case .internalOnly: return L10n.text("Use only the built-in Mac display")
         case .duplicate: return L10n.text("Show the same content on both displays")
         case .extend: return L10n.text("Extend your desktop onto the second display")
-        case .externalOnly: return L10n.text("Use only the selected external display")
+        case .externalOnly: return L10n.text("Use only external displays")
         }
     }
 }
@@ -75,7 +75,7 @@ func currentProjection(_ displays: [Display], externalID: UInt32) -> ProjectionM
     let enabledExternal = displays.filter { !$0.builtin && !$0.virtual && $0.enabled }
     let second = displays.first { $0.id == externalID && !$0.builtin && !$0.virtual }
     if internalDisplay.enabled && enabledExternal.isEmpty { return .internalOnly }
-    if !internalDisplay.enabled && second?.enabled == true && enabledExternal.count == 1 { return .externalOnly }
+    if !internalDisplay.enabled && !enabledExternal.isEmpty { return .externalOnly }
     if internalDisplay.enabled, let second, second.enabled, enabledExternal.count == 1 {
         let paired = second.mirrorOf == internalDisplay.id || internalDisplay.mirrorOf == second.id
         return paired ? .duplicate : (!second.mirror && !internalDisplay.mirror ? .extend : nil)
@@ -375,16 +375,6 @@ struct ProjectionPanel: View {
                 .accessibilityLabel(L10n.text("Close panel"))
             }
             .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 18)
-            if model.externals.count > 1 {
-                Picker(L10n.text("Second display"), selection: Binding(get: { model.externalID }, set: { model.chooseExternal($0) })) {
-                    ForEach(model.externals) { display in
-                        Text(display.name + (!display.available ? L10n.text(" (Disconnected)") : "")).tag(display.id)
-                    }
-                }
-                .pickerStyle(.menu)
-                .disabled(model.busy)
-                .padding(.horizontal, 24).padding(.bottom, 12)
-            }
             VStack(spacing: 7) {
                 ForEach(Array(ProjectionMode.allCases.enumerated()), id: \.element.id) { index, mode in
                     ProjectionRow(mode: mode, shortcutNumber: index + 1, selected: model.selected == mode,
@@ -394,7 +384,7 @@ struct ProjectionPanel: View {
             }
             .padding(.bottom, 18)
         }
-        .frame(width: 414, height: model.externals.count > 1 ? 508 : 470)
+        .frame(width: 414, height: 470)
         .background { AcrylicBackground() }
         .onExitCommand(perform: onClose)
         .alert(errorMessageTitle, isPresented: Binding(
@@ -596,12 +586,13 @@ struct MacDisplayCtlApplication {
             }
             precondition(currentProjection(fixture(true, false), externalID: 2) == .internalOnly)
             precondition(currentProjection(fixture(false, true), externalID: 2) == .externalOnly)
+            precondition(currentProjection(fixture(false, true, extra: true), externalID: 2) == .externalOnly)
             precondition(currentProjection(fixture(true, true), externalID: 2) == .extend)
             precondition(currentProjection(fixture(true, true, mirror: true), externalID: 2) == .duplicate)
             precondition(currentProjection(fixture(false, false), externalID: 2) == nil)
             precondition(currentProjection(fixture(true, true, extra: true), externalID: 2) == nil)
             precondition(currentProjection(fixture(true, true, extra: true, virtual: true), externalID: 2) == .extend)
-            precondition(currentProjection(fixture(false, true), externalID: 999) == nil)
+            precondition(currentProjection(fixture(false, true), externalID: 999) == .externalOnly)
             let builtin = fixture(true, false)[0]
             func cachedExternal(_ connected: Any) -> Display {
                 let row: [String: Any] = ["id": 2, "name": "External", "builtin": false,
@@ -631,8 +622,8 @@ struct MacDisplayCtlApplication {
             precondition(projectionError(CommandResult(code: 0, output: "Done"), mode: .extend,
                 externalAvailable: true) == nil)
             let expectedTitles = L10n.language == "zh-Hans"
-                ? ["仅电脑屏幕", "扩展", "复制", "仅第二屏幕"]
-                : ["Built-in Only", "Extend", "Mirror", "External Only"]
+                ? ["仅电脑屏幕", "扩展", "复制", "仅扩展屏幕"]
+                : ["Built-in Only", "Extend", "Mirror", "External Displays Only"]
             precondition(ProjectionMode.allCases.map(\.title) == expectedTitles)
             precondition(L10n.text("macDisplayCtl") == (L10n.language == "zh-Hans" ? "屏幕切换" : "macDisplayCtl"))
             precondition(Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String == L10n.text("macDisplayCtl"))
