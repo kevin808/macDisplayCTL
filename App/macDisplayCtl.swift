@@ -132,7 +132,7 @@ final class ScreenModel: ObservableObject {
             }
         }
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self, !self.busy else { return }
                 await self.refresh()
             }
