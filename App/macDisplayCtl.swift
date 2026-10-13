@@ -292,6 +292,7 @@ struct ScreenPair: View {
 
 struct ProjectionRow: View {
     let mode: ProjectionMode
+    let shortcutNumber: Int
     let selected: Bool
     let enabled: Bool
     let action: () -> Void
@@ -301,7 +302,12 @@ struct ProjectionRow: View {
             HStack(spacing: 19) {
                 ScreenPair(mode: mode)
                 Text(mode.title).font(.system(size: 23, weight: .regular))
+                    .lineLimit(1)
                 Spacer(minLength: 0)
+                Text("⌃⇧\(shortcutNumber)")
+                    .font(.system(size: 14, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
             }
             .padding(.horizontal, 24)
             .frame(height: 88)
@@ -381,7 +387,7 @@ struct ProjectionPanel: View {
             }
             VStack(spacing: 7) {
                 ForEach(Array(ProjectionMode.allCases.enumerated()), id: \.element.id) { index, mode in
-                    ProjectionRow(mode: mode, selected: model.selected == mode,
+                    ProjectionRow(mode: mode, shortcutNumber: index + 1, selected: model.selected == mode,
                                   enabled: model.canApply()) { model.apply(mode) }
                         .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [])
                 }
