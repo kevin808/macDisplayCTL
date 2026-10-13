@@ -290,6 +290,7 @@ struct AcrylicBackground: View {
 
 struct ProjectionPanel: View {
     @ObservedObject var model: ScreenModel
+    let onClose: () -> Void
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -303,18 +304,29 @@ struct ProjectionPanel: View {
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.3)))
                 .help(L10n.text("Open the panel with Control + Option + P"))
                 Spacer(minLength: 4)
-                if model.externals.count > 1 {
-                    Picker(L10n.text("Second display"), selection: Binding(get: { model.externalID }, set: { model.chooseExternal($0) })) {
-                        ForEach(model.externals) { display in
-                            Text(display.name + (display.remembered ? L10n.text(" (Disconnected)") : "")).tag(display.id)
-                        }
-                    }
-                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 150)
-                    .disabled(model.busy)
-                }
                 if model.busy { ProgressView().controlSize(.small) }
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 22, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .background(.primary.opacity(0.08), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(L10n.text("Close panel"))
+                .accessibilityLabel(L10n.text("Close panel"))
             }
-            .padding(.horizontal, 24).padding(.top, 25).padding(.bottom, 23)
+            .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 18)
+            if model.externals.count > 1 {
+                Picker(L10n.text("Second display"), selection: Binding(get: { model.externalID }, set: { model.chooseExternal($0) })) {
+                    ForEach(model.externals) { display in
+                        Text(display.name + (display.remembered ? L10n.text(" (Disconnected)") : "")).tag(display.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .disabled(model.busy)
+                .padding(.horizontal, 24).padding(.bottom, 12)
+            }
             VStack(spacing: 7) {
                 ForEach(Array(ProjectionMode.allCases.enumerated()), id: \.element.id) { index, mode in
                     ProjectionRow(mode: mode, selected: model.selected == mode,
@@ -324,9 +336,9 @@ struct ProjectionPanel: View {
             }
             .padding(.bottom, 18)
         }
-        .frame(width: 414, height: 470)
+        .frame(width: 414, height: model.externals.count > 1 ? 508 : 470)
         .background { AcrylicBackground() }
-        .onExitCommand { NSApp.keyWindow?.orderOut(nil) }
+        .onExitCommand(perform: onClose)
         .alert(L10n.text("Unable to complete the operation"), isPresented: Binding(
             get: { model.errorMessage != nil },
             set: { if !$0 { model.errorMessage = nil } }
@@ -372,7 +384,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window.standardWindowButton(button)?.isHidden = true
         }
-        window.contentView = NSHostingView(rootView: ProjectionPanel(model: model))
+        window.contentView = NSHostingView(rootView: ProjectionPanel(model: model) { [weak self] in
+            self?.hidePanel()
+        })
         window.center()
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: L10n.text("macDisplayCtl"))
@@ -412,8 +426,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showPanel(); return true
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationDidResignActive(_ notification: Notification) { hidePanel() }
+    func hidePanel() { window?.orderOut(nil) }
     @objc func togglePanel() {
-        if window.isVisible && NSApp.isActive { window.orderOut(nil) }
+        if window.isVisible && NSApp.isActive { hidePanel() }
         else { showPanel() }
     }
     func showPanel() {

@@ -60,7 +60,7 @@ Click the dual-display menu bar icon or press **Control + Option + P** to open o
 
 The second-screen selector appears in the header only when multiple physical external targets are available; with one external display, it is selected automatically. Projection modes use the built-in display and that external display; other enabled physical external displays are disabled. Virtual displays do not participate. Cached, unplugged displays are marked **Disconnected**. If enabling the target fails, currently usable displays remain available. Mirroring resolutions depend on macOS and the displays.
 
-Press **Esc** to hide the panel, or **Command + Q** to quit the app. The panel contains the four projection modes, with no status footer or recovery switch. Failed operations show an alert. Quitting the app or closing the interactive menu does not stop the independent monitor.
+Click the desktop or another app to hide the panel automatically. You can also click the large close button in the top-right corner or press **Esc**. Reopen it from the menu bar or with **Control + Option + P**; **Command + Q** quits the app. The panel contains the four projection modes. Failed operations show an alert. Hiding the panel, quitting the app, or closing the interactive menu does not stop the independent monitor.
 
 On first launch, the app automatically enables **Turn on the built-in screen after external disconnection** and installs the monitor to run at login. Later launches update a running monitor if its helper differs from the bundled helper. After initialization, an explicit `guard stop` is retained; use `guard start` to enable it again.
 
