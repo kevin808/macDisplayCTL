@@ -859,8 +859,9 @@ static BOOL projectionLayout(NSDictionary *configuration, NSString **error) {
         for (NSDictionary *row in configuration[@"externals"]) {
             uint32_t identifier = [row[@"id"] unsignedIntValue];
             if (!isEnabled(identifier)) continue;
-            int32_t x = index == 0 ? [origins[@"external"][@"x"] intValue] : offset;
-            int32_t y = index == 0 ? [origins[@"external"][@"y"] intValue] : 0;
+            NSDictionary *saved = configuration[@"externalLayouts"][[row[@"id"] stringValue]];
+            int32_t x = saved ? [saved[@"x"] intValue] : (index == 0 ? [origins[@"external"][@"x"] intValue] : offset);
+            int32_t y = saved ? [saved[@"y"] intValue] : (index == 0 ? [origins[@"external"][@"y"] intValue] : 0);
             status = CGConfigureDisplayOrigin(config, identifier, x, y);
             if (status != kCGErrorSuccess) break;
             offset += (int32_t)CGDisplayBounds(identifier).size.width;
@@ -937,6 +938,16 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         NSDictionary *layouts = updatedLayouts(previousLayouts, rows, bootID());
         NSDictionary *layout = savedLayout(layouts, configuration, bootID());
         if ([mode isEqual:@"extend"] && layout) configuration[@"layout"] = layout;
+        if ([mode isEqual:@"extend"]) {
+            NSMutableDictionary *externalLayouts = [NSMutableDictionary dictionary];
+            for (NSDictionary *row in configuration[@"externals"]) {
+                NSString *key = layoutKey(configuration[@"builtin"], row, bootID());
+                NSDictionary *saved = key ? layouts[key] : nil;
+                if ([saved isKindOfClass:NSDictionary.class] && validOrigin(saved[@"external"]))
+                    externalLayouts[[row[@"id"] stringValue]] = saved[@"external"];
+            }
+            if (externalLayouts.count) configuration[@"externalLayouts"] = externalLayouts;
+        }
         if (dryRun) {
             NSData *data = [NSJSONSerialization dataWithJSONObject:configuration options:NSJSONWritingPrettyPrinted error:nil];
             fwrite(data.bytes, 1, data.length, stdout); putchar('\n'); return 0;
