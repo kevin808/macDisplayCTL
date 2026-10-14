@@ -80,6 +80,10 @@ func currentProjection(_ displays: [Display], externalID: UInt32) -> ProjectionM
        enabledExternal.allSatisfy({ $0.mirrorOf == internalDisplay.id || internalDisplay.mirrorOf == $0.id }) {
         return .duplicate
     }
+    if internalDisplay.enabled, !enabledExternal.isEmpty,
+       enabledExternal.allSatisfy({ !$0.mirror && ($0.mirrorOf ?? 0) == 0 }) {
+        return .extend
+    }
     if internalDisplay.enabled, let second, second.enabled, enabledExternal.count == 1 {
         let paired = second.mirrorOf == internalDisplay.id || internalDisplay.mirrorOf == second.id
         return paired ? .duplicate : (!second.mirror && !internalDisplay.mirror ? .extend : nil)
@@ -594,7 +598,7 @@ struct MacDisplayCtlApplication {
             precondition(currentProjection(fixture(true, true), externalID: 2) == .extend)
             precondition(currentProjection(fixture(true, true, mirror: true), externalID: 2) == .duplicate)
             precondition(currentProjection(fixture(false, false), externalID: 2) == nil)
-            precondition(currentProjection(fixture(true, true, extra: true), externalID: 2) == nil)
+            precondition(currentProjection(fixture(true, true, extra: true), externalID: 2) == .extend)
             precondition(currentProjection(fixture(true, true, extra: true, virtual: true), externalID: 2) == .extend)
             precondition(currentProjection(fixture(false, true), externalID: 999) == .externalOnly)
             let builtin = fixture(true, false)[0]
