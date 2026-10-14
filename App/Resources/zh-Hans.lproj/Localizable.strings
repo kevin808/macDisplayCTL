@@ -6,7 +6,7 @@
 "Copy" = "复制";
 "Current mode" = "当前模式";
 "Edit" = "编辑";
-"Extend your desktop onto the second display" = "让第二屏幕延伸你的桌面";
+"Extend your desktop across the built-in and all external displays" = "将桌面扩展到内置屏幕与所有外接屏幕";
 "Extend" = "扩展";
 "External Displays Only" = "仅扩展屏幕";
 "Mirror" = "复制";
@@ -16,7 +16,7 @@
 "Project" = "投影";
 "Quit macDisplayCtl" = "退出屏幕切换";
 "Second display" = "第二屏幕";
-"Show the same content on both displays" = "两个屏幕显示相同内容";
+"Show the built-in display content on all external displays" = "内置屏幕与所有外接屏幕显示相同内容";
 "Unable to complete the operation" = "未能完成操作";
 "The display connection is changing. Wait a moment and try again." = "屏幕连接正在变化，请稍候再试。";
 "Unable to read displays. Reopen the panel to retry." = "无法读取显示器，请重新打开面板重试。";

@@ -16,8 +16,8 @@ enum ProjectionMode: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .internalOnly: return L10n.text("Use only the built-in Mac display")
-        case .duplicate: return L10n.text("Show the same content on both displays")
-        case .extend: return L10n.text("Extend your desktop onto the second display")
+        case .duplicate: return L10n.text("Show the built-in display content on all external displays")
+        case .extend: return L10n.text("Extend your desktop across the built-in and all external displays")
         case .externalOnly: return L10n.text("Use only external displays")
         }
     }
