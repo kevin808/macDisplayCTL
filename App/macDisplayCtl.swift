@@ -76,6 +76,10 @@ func currentProjection(_ displays: [Display], externalID: UInt32) -> ProjectionM
     let second = displays.first { $0.id == externalID && !$0.builtin && !$0.virtual }
     if internalDisplay.enabled && enabledExternal.isEmpty { return .internalOnly }
     if !internalDisplay.enabled && !enabledExternal.isEmpty { return .externalOnly }
+    if internalDisplay.enabled, !enabledExternal.isEmpty,
+       enabledExternal.allSatisfy({ $0.mirrorOf == internalDisplay.id || internalDisplay.mirrorOf == $0.id }) {
+        return .duplicate
+    }
     if internalDisplay.enabled, let second, second.enabled, enabledExternal.count == 1 {
         let paired = second.mirrorOf == internalDisplay.id || internalDisplay.mirrorOf == second.id
         return paired ? .duplicate : (!second.mirror && !internalDisplay.mirror ? .extend : nil)

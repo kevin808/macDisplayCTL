@@ -842,8 +842,14 @@ static BOOL projectionLayout(NSDictionary *configuration, NSString **error) {
         if (status == kCGErrorSuccess)
             status = CGConfigureDisplayMirrorOfDisplay(config, identifier, kCGNullDirectDisplay);
     }
-    if (status == kCGErrorSuccess && duplicate)
-        status = CGConfigureDisplayMirrorOfDisplay(config, external, internal);
+    if (status == kCGErrorSuccess && duplicate) {
+        for (NSDictionary *row in configuration[@"externals"]) {
+            uint32_t identifier = [row[@"id"] unsignedIntValue];
+            if (!isEnabled(identifier)) continue;
+            status = CGConfigureDisplayMirrorOfDisplay(config, identifier, internal);
+            if (status != kCGErrorSuccess) break;
+        }
+    }
     NSDictionary *origins = projectionOrigins(configuration, (int32_t)CGDisplayBounds(internal).size.width);
     if (status == kCGErrorSuccess && !externalOnly)
         status = CGConfigureDisplayOrigin(config, internal, [origins[@"builtin"][@"x"] intValue], [origins[@"builtin"][@"y"] intValue]);
@@ -853,7 +859,7 @@ static BOOL projectionLayout(NSDictionary *configuration, NSString **error) {
         status = configureEnabled(config, internal, false);
     for (NSDictionary *row in configuration[@"externals"]) {
         uint32_t identifier = [row[@"id"] unsignedIntValue];
-        if (externalOnly || !isEnabled(identifier) || (!internalOnly && identifier == external)) continue;
+        if (externalOnly || duplicate || !isEnabled(identifier) || (!internalOnly && identifier == external)) continue;
         if (status == kCGErrorSuccess) status = configureEnabled(config, identifier, false);
     }
     if (status != kCGErrorSuccess) {
@@ -878,8 +884,17 @@ static BOOL projectionMatches(NSDictionary *configuration) {
         uint32_t identifier = [row[@"id"] unsignedIntValue];
         if (!externalOnly && (internalOnly || identifier != external) && isEnabled(identifier)) return NO;
     }
-    if ([mode isEqual:@"duplicate"])
-        return CGDisplayMirrorsDisplay(external) == internal || CGDisplayMirrorsDisplay(internal) == external;
+    if ([mode isEqual:@"duplicate"]) {
+        BOOL found = NO;
+        for (NSDictionary *row in configuration[@"externals"]) {
+            uint32_t identifier = [row[@"id"] unsignedIntValue];
+            if (!isEnabled(identifier)) return NO;
+            found = YES;
+            if (CGDisplayMirrorsDisplay(identifier) != internal &&
+                CGDisplayMirrorsDisplay(internal) != identifier) return NO;
+        }
+        return found;
+    }
     if ([mode isEqual:@"extend"]) {
         // WindowServer may normalize origins while committing a layout. The
         // stable facts are that both displays are active and no longer mirrored.
@@ -909,7 +924,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
             NSData *data = [NSJSONSerialization dataWithJSONObject:configuration options:NSJSONWritingPrettyPrinted error:nil];
             fwrite(data.bytes, 1, data.length, stdout); putchar('\n'); return 0;
         }
-        BOOL externalOnly = [mode isEqual:@"external"], internalOnly = [mode isEqual:@"internal"];
+        BOOL externalOnly = [mode isEqual:@"external"], internalOnly = [mode isEqual:@"internal"], duplicate = [mode isEqual:@"duplicate"];
         if (!externalOnly && lidState() != 0) {
             fail(localize(@"请先打开笔记本屏幕，再选择包含内置屏的模式。", @"Open the laptop lid before selecting a mode that uses the built-in display.")); return 2;
         }
@@ -927,7 +942,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         if (!externalOnly && ![configuration[@"builtin"][@"enabled"] boolValue])
             [enable addObject:@{@"display": configuration[@"builtin"], @"enabled": @YES}];
         if (!internalOnly) {
-            if (externalOnly) {
+            if (externalOnly || duplicate) {
                 for (NSDictionary *row in configuration[@"externals"])
                     if (![row[@"enabled"] boolValue])
                         [enable addObject:@{@"display": row, @"enabled": @YES}];
@@ -939,7 +954,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         uint32_t internal = [configuration[@"builtin"][@"id"] unsignedIntValue];
         uint32_t external = [configuration[@"external"][@"id"] unsignedIntValue];
         BOOL allExternalReady = YES;
-        if (externalOnly) for (NSDictionary *row in configuration[@"externals"])
+        if (externalOnly || duplicate) for (NSDictionary *row in configuration[@"externals"])
             allExternalReady = allExternalReady && waitEnabled([row[@"id"] unsignedIntValue]);
         if ((!externalOnly && !waitEnabled(internal)) ||
             (externalOnly && !allExternalReady) || (!internalOnly && !externalOnly && !waitEnabled(external))) {
@@ -1448,6 +1463,10 @@ int main(void) {
                                                           fixture(3, NO, YES, NO)], @"external", nil, &error);
         reconnectAssert(externalOnlyMany != nil && [externalOnlyMany[@"externals"] count] == 2,
                         @"external-only accepts all physical externals", &projectionChecks);
+        reconnectAssert(projectionPlan(@[fixture(1, YES, YES, NO),
+                                         fixture(2, NO, YES, NO),
+                                         fixture(3, NO, YES, NO)], @"duplicate", nil, &error) != nil,
+                        @"duplicate accepts all physical externals", &projectionChecks);
         unsigned connectionChecks = 0;
         NSMutableData *edid = [NSMutableData dataWithLength:128];
         uint8_t *bytes = edid.mutableBytes;
