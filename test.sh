@@ -8,6 +8,10 @@ xcrun clang -mmacosx-version-min=13.0 -fobjc-arc -O2 -Wall -Wextra -Wno-unused-f
 for task_language in en zh-Hans; do
     MACDISPLAYCTL_LANGUAGE="$task_language" "$task_dir/build/planning-tests"
 done
+xcrun clang -mmacosx-version-min=13.0 -fobjc-arc -O2 -Wall -Wextra -Wno-unused-function \
+    -framework Foundation -framework CoreGraphics -framework IOKit \
+    "$task_dir/tests/display_identity.m" -o "$task_dir/build/display-identity-tests"
+"$task_dir/build/display-identity-tests"
 if [ -x "$task_dir/build/macDisplayCtl.app/Contents/MacOS/macDisplayCtl" ]; then
     for task_language in en zh-Hans; do
         env -u MACDISPLAYCTL_LANGUAGE "$task_dir/build/macDisplayCtl.app/Contents/MacOS/macDisplayCtl" --self-test -AppleLanguages "($task_language)"

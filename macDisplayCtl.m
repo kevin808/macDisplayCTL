@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <errno.h>
+#include <mach-o/dyld.h>
 
 // Private WindowServer APIs; availability depends on macOS and hardware.
 typedef CGError (*DisplayListFn)(uint32_t, CGDirectDisplayID *, uint32_t *);
@@ -81,6 +82,21 @@ static NSString *displayName(NSDictionary *info, BOOL builtin, uint32_t display)
     return builtin ? localize(@"内置显示器", @"Built-in display") : [NSString stringWithFormat:localize(@"外置显示器 %u", @"External display %u"), display];
 }
 
+// CoreGraphics uses UINT32_MAX for invalid display lookups. It is not a
+// real vendor/product or a true boolean, even though ordinary truthiness says yes.
+static BOOL validDisplayIdentity(NSDictionary *row) {
+    if (![row isKindOfClass:NSDictionary.class] || ![row[@"id"] isKindOfClass:NSNumber.class]) return NO;
+    uint64_t identifier = [row[@"id"] unsignedLongLongValue];
+    if (identifier == 0 || identifier >= UINT32_MAX) return NO;
+    for (NSString *key in @[@"vendor", @"product"])
+        if ([row[key] isKindOfClass:NSNumber.class] && [row[key] unsignedIntValue] == UINT32_MAX) return NO;
+    return YES;
+}
+
+static BOOL displayFlag(uint32_t value) {
+    return value != 0 && value != UINT32_MAX;
+}
+
 static NSArray<NSDictionary *> *loadRemembered(void) {
     NSString *boot = bootID();
     if (!boot) return @[]; // IDs from another boot must never select a target.
@@ -93,10 +109,7 @@ static NSArray<NSDictionary *> *loadRemembered(void) {
     if (![rows isKindOfClass:NSArray.class]) return @[];
     NSMutableArray *valid = [NSMutableArray array];
     for (id row in rows) {
-        if (![row isKindOfClass:NSDictionary.class] ||
-            ![row[@"id"] isKindOfClass:NSNumber.class] ||
-            [row[@"id"] unsignedLongLongValue] == 0 ||
-            [row[@"id"] unsignedLongLongValue] > UINT32_MAX ||
+        if (!validDisplayIdentity(row) ||
             ![row[@"name"] isKindOfClass:NSString.class] ||
             ![row[@"builtin"] isKindOfClass:NSNumber.class]) continue;
         NSString *current = displayUUID([row[@"id"] unsignedIntValue]);
@@ -167,11 +180,16 @@ static id connectionState(NSDictionary *row, NSSet *monitors) {
 // simultaneously enumerated screens that happen to share an EDID/UUID.
 static NSArray *currentDisplayRows(NSArray *rows) {
     NSMutableSet *liveUUIDs = [NSMutableSet set];
-    for (NSDictionary *row in rows)
-        if (![row[@"remembered"] boolValue] && [row[@"uuid"] isKindOfClass:NSString.class])
-            [liveUUIDs addObject:row[@"uuid"]];
+    BOOL hasLiveBuiltin = NO;
+    for (NSDictionary *row in rows) {
+        if (!validDisplayIdentity(row) || [row[@"remembered"] boolValue]) continue;
+        if ([row[@"builtin"] boolValue] && ![row[@"virtual"] boolValue]) hasLiveBuiltin = YES;
+        if ([row[@"uuid"] isKindOfClass:NSString.class]) [liveUUIDs addObject:row[@"uuid"]];
+    }
     NSMutableArray *result = [NSMutableArray array];
     for (NSDictionary *row in rows) {
+        if (!validDisplayIdentity(row)) continue;
+        if (hasLiveBuiltin && [row[@"remembered"] boolValue] && [row[@"builtin"] boolValue]) continue;
         if ([row[@"remembered"] boolValue] && row[@"uuid"] && [liveUUIDs containsObject:row[@"uuid"]]) continue;
         [result addObject:row];
     }
@@ -202,11 +220,12 @@ static NSArray<NSDictionary *> *discover(NSString **error) {
     NSMutableDictionary<NSNumber *, NSDictionary *> *byID = [NSMutableDictionary dictionary];
     for (uint32_t i = 0; i < count; i++) {
         CGDirectDisplayID display = ids[i];
-        if (!display) continue;
-        BOOL builtin = CGDisplayIsBuiltin(display) != 0;
-        BOOL online = CGDisplayIsOnline(display) != 0;
-        BOOL mirror = CGDisplayIsInMirrorSet(display) || CGDisplayIsInHWMirrorSet(display);
-        BOOL active = CGDisplayIsActive(display) != 0;
+        uint32_t vendor = CGDisplayVendorNumber(display), product = CGDisplayModelNumber(display);
+        if (!validDisplayIdentity(@{@"id": @(display), @"vendor": @(vendor), @"product": @(product)})) continue;
+        BOOL builtin = displayFlag(CGDisplayIsBuiltin(display));
+        BOOL online = displayFlag(CGDisplayIsOnline(display));
+        BOOL mirror = displayFlag(CGDisplayIsInMirrorSet(display)) || displayFlag(CGDisplayIsInHWMirrorSet(display));
+        BOOL active = displayFlag(CGDisplayIsActive(display));
         NSString *uuid = displayUUID(display);
         // SkyLight can include reserved IDs with neither a display nor an identity.
         // Own soft-disabled targets can still be restored through the boot cache.
@@ -218,17 +237,17 @@ static NSArray<NSDictionary *> *discover(NSString **error) {
             @"id": @(display), @"builtin": @(builtin),
             @"name": displayName(info, builtin, display),
             @"online": @(online), @"active": @(active), @"mirror": @(mirror),
-            @"asleep": @(online && CGDisplayIsAsleep(display)),
+            @"asleep": @(online && displayFlag(CGDisplayIsAsleep(display))),
             @"enabled": @(online && (active || mirror)),
             @"mirrorOf": @(CGDisplayMirrorsDisplay(display)),
-            @"vendor": @(CGDisplayVendorNumber(display)), @"product": @(CGDisplayModelNumber(display)),
+            @"vendor": @(vendor), @"product": @(product),
             @"serial": @(CGDisplaySerialNumber(display)),
             @"width": @(CGDisplayPixelsWide(display)), @"height": @(CGDisplayPixelsHigh(display)),
             @"logicalWidth": @(CGDisplayBounds(display).size.width),
             @"x": @(CGDisplayBounds(display).origin.x), @"y": @(CGDisplayBounds(display).origin.y),
             @"virtual": @([virtual respondsToSelector:@selector(boolValue)] && [virtual boolValue]),
             @"exclusive": @([info[@"DisplayIsSLVDExclusive"] boolValue]),
-            @"remembered": @NO, @"main": @(CGDisplayIsMain(display) != 0)
+            @"remembered": @NO, @"main": @(displayFlag(CGDisplayIsMain(display)))
         } mutableCopy];
         if (uuid) row[@"uuid"] = uuid;
         byID[@(display)] = row;
@@ -834,11 +853,6 @@ static NSDictionary *projectionPlan(NSArray *rows, NSString *mode, NSNumber *ext
     return @{@"mode": mode, @"builtin": builtin, @"external": external ?: @{}, @"externals": externals};
 }
 
-static BOOL isEnabled(CGDirectDisplayID identifier) {
-    return CGDisplayIsOnline(identifier) && (CGDisplayIsActive(identifier) ||
-           CGDisplayIsInMirrorSet(identifier) || CGDisplayIsInHWMirrorSet(identifier));
-}
-
 static NSString *projectionReadinessIssue(NSDictionary *configuration, NSArray *observed);
 static NSDictionary *observedDisplay(NSDictionary *target, NSArray *observed);
 
@@ -882,12 +896,14 @@ static NSDictionary *allProjectionOrigins(NSDictionary *configuration) {
     return origins;
 }
 
-// Compatibility helper used by the arrangement tests and diagnostics.
+#ifdef DISPLAYCTL_TEST
+// Compatibility helper for the original pair-layout regression fixtures.
 static NSDictionary *projectionOrigins(NSDictionary *configuration, int32_t builtinWidth) {
     NSDictionary *layout = [configuration[@"mode"] isEqual:@"extend"] ? configuration[@"layout"] : nil;
     return layout ?: @{@"builtin": @{@"x": @0, @"y": @0},
                        @"external": @{@"x": [configuration[@"mode"] isEqual:@"extend"] ? @(builtinWidth) : @0, @"y": @0}};
 }
+#endif
 
 // The transaction and regression tests consume this same operation plan.
 static NSArray *projectionOperations(NSDictionary *configuration, NSArray *observed, NSString **error) {
@@ -1044,10 +1060,53 @@ static NSDictionary *reboundProjection(NSDictionary *configuration, NSArray *obs
     return fresh;
 }
 
+// CoreGraphics can retain the pre-commit display cache for the lifetime of this
+// command. A new read-only helper gets a fresh WindowServer connection. Bound the
+// child lifetime so a stalled display service cannot hang a user-initiated switch.
+static NSArray *freshDisplaySnapshot(NSString **error) {
+    uint32_t length = 0;
+    _NSGetExecutablePath(NULL, &length);
+    NSMutableData *path = [NSMutableData dataWithLength:length];
+    if (_NSGetExecutablePath(path.mutableBytes, &length) != 0) {
+        *error = localize(@"无法启动显示状态核对。", @"Unable to start display state verification."); return nil;
+    }
+    NSTask *task = [NSTask new];
+    task.executableURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path.bytes]];
+    task.arguments = @[@"list", @"--json"];
+    NSPipe *pipe = [NSPipe pipe];
+    task.standardOutput = pipe;
+    task.standardError = [NSFileHandle fileHandleWithNullDevice];
+    dispatch_semaphore_t exited = dispatch_semaphore_create(0);
+    task.terminationHandler = ^(NSTask *finished) { (void)finished; dispatch_semaphore_signal(exited); };
+    NSError *failure = nil;
+    if (![task launchAndReturnError:&failure]) { *error = failure.localizedDescription; return nil; }
+    __block NSData *output = nil;
+    dispatch_group_t readers = dispatch_group_create();
+    dispatch_group_async(readers, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        output = [pipe.fileHandleForReading readDataToEndOfFile];
+    });
+    if (dispatch_semaphore_wait(exited, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)) != 0) {
+        [task terminate];
+        if (dispatch_semaphore_wait(exited, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) != 0) {
+            kill(task.processIdentifier, SIGKILL);
+            dispatch_semaphore_wait(exited, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC));
+        }
+        *error = localize(@"读取显示状态超时。", @"Reading display state timed out."); return nil;
+    }
+    if (dispatch_group_wait(readers, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) != 0 || task.terminationStatus != 0) {
+        *error = localize(@"无法读取最新显示状态。", @"Unable to read the latest display state."); return nil;
+    }
+    id rows = output ? [NSJSONSerialization JSONObjectWithData:output options:0 error:&failure] : nil;
+    if (![rows isKindOfClass:NSArray.class]) {
+        *error = localize(@"显示状态返回格式无效。", @"Display state response is invalid."); return nil;
+    }
+    return currentDisplayRows(rows);
+}
+
 static NSArray *awaitProjection(NSDictionary *configuration, BOOL readinessOnly, NSString **issue) {
     double deadline = NSProcessInfo.processInfo.systemUptime + 8;
     do {
-        NSArray *rows = discover(issue);
+        NSArray *rows = freshDisplaySnapshot(issue);
         if (rows) {
             *issue = readinessOnly ? projectionReadinessIssue(configuration, rows) : projectionStateIssue(configuration, rows);
             if (!*issue) return rows;
@@ -1059,7 +1118,7 @@ static NSArray *awaitProjection(NSDictionary *configuration, BOOL readinessOnly,
 
 static void saveProjectionDiagnostic(NSDictionary *configuration, NSString *phase, NSString *issue) {
     NSString *ignored = nil;
-    NSArray *rows = discover(&ignored) ?: @[];
+    NSArray *rows = freshDisplaySnapshot(&ignored) ?: @[];
     writeSessionFile(@"last-projection-failure.json", @{@"mode": configuration[@"mode"], @"phase": phase,
         @"issue": issue ?: @"unknown", @"requested": configuration,
         @"observed": rows, @"time": NSDate.date.description}, &ignored);
@@ -1451,20 +1510,20 @@ int main(int argc, const char *argv[]) {
             if (!saveRemembered(rows, &error)) { fail(error); return 1; }
             if (!apply(changes, &error)) { fail(error); return 1; }
             recordBuiltinIntent(rows, action, target);
-            // Wait for a bounded period and report the observed final state.
-            for (int i = 0; i < 20; i++) {
-                BOOL matches = YES;
+            // Like projection changes, individual toggles require a fresh
+            // WindowServer connection for reliable post-commit observation.
+            double deadline = NSProcessInfo.processInfo.systemUptime + 8;
+            do {
+                NSArray *current = freshDisplaySnapshot(&error);
+                BOOL matches = current != nil;
                 for (NSDictionary *change in changes) {
-                    uint32_t identifier = [change[@"display"][@"id"] unsignedIntValue];
-                    BOOL enabled = CGDisplayIsOnline(identifier) &&
-                        (CGDisplayIsActive(identifier) || CGDisplayIsInMirrorSet(identifier) ||
-                         CGDisplayIsInHWMirrorSet(identifier));
+                    BOOL enabled = observedEnabled(observedDisplay(change[@"display"], current ?: @[]));
                     if (enabled != [change[@"enabled"] boolValue]) matches = NO;
                 }
                 if (matches) { puts(localize(@"完成，已核对系统显示状态。", @"Done. System display state verified.").UTF8String); return 0; }
                 usleep(100000);
-            }
-            fail(localize(@"配置已提交，但 2 秒内系统状态未达到预期。运行 list 检查；恢复命令：on all。", @"Configuration committed, but the expected state was not observed within 2 seconds. Run list to check; recovery command: on all."));
+            } while (NSProcessInfo.processInfo.systemUptime < deadline);
+            fail(localize(@"配置已提交，但 8 秒内系统状态未达到预期。运行 list 检查；恢复命令：on all。", @"Configuration committed, but the expected state was not observed within 8 seconds. Run list to check; recovery command: on all."));
             return 3;
         } @finally { if (commandLock >= 0) close(commandLock); }
     }

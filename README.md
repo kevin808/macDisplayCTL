@@ -118,7 +118,7 @@ Run these commands from the repository directory. Replace example numeric IDs wi
 
 By default, the tool refuses to disable the last enabled non-virtual display. A display scheduled to be enabled in the same operation does not count as an available fallback. To explicitly allow all displays to be disabled, use `./macDisplayCtl off all --allow-all-off`. Stop the recovery monitor first if all displays should remain disabled; otherwise it can restore the built-in display while the lid is open.
 
-Exit codes: `0` means success, no change needed, or a successful preview; `1` means an API or transaction failure; `2` means invalid arguments or a protection refusal; `3` means the transaction was committed but the expected state was not observed within two seconds.
+Exit codes: `0` means success, no change needed, or a successful preview; `1` means an API or transaction failure; `2` means invalid arguments or a protection refusal; `3` means the transaction was committed but the expected state was not observed within eight seconds.
 
 ## Recovery monitor
 
@@ -186,7 +186,7 @@ The test script runs simulated command planning, recovery policy, reconnection m
 - Display enable/disable removes or restores a display in the macOS layout; it is not a DDC hardware power command.
 - The tool uses the private `CGSConfigureDisplayEnabled` API. Intel Macs, some M3 built-in displays, and certain virtual or third-party display solutions may not support disabling or reconnecting displays correctly.
 - Projection modes require a built-in display. Virtual display detection depends on flags reported by macOS.
-- Changes apply to the current login session rather than permanent display configuration. The tool checks transaction return codes and verifies the resulting state for up to two seconds; failed configuration transactions are cancelled.
+- Changes apply to the current login session rather than permanent display configuration. The tool checks transaction return codes and verifies the resulting state through a fresh read-only helper process for up to eight seconds; failed configuration transactions are cancelled.
 - Other display-management software may override changes. The monitor retries according to its cooldown policy.
 
 When reporting an issue, include the macOS version, Mac model, display connection type, the command or projection mode used, and relevant log output.
