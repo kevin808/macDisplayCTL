@@ -162,6 +162,35 @@ static id connectionState(NSDictionary *row, NSSet *monitors) {
     return monitors.count ? NSNull.null : @NO;
 }
 
+// A reconnected screen may have a new ID while its old cached ID still exists.
+// Keep live instances and discard superseded cache entries, without merging two
+// simultaneously enumerated screens that happen to share an EDID/UUID.
+static NSArray *currentDisplayRows(NSArray *rows) {
+    NSMutableSet *liveUUIDs = [NSMutableSet set];
+    for (NSDictionary *row in rows)
+        if (![row[@"remembered"] boolValue] && [row[@"uuid"] isKindOfClass:NSString.class])
+            [liveUUIDs addObject:row[@"uuid"]];
+    NSMutableArray *result = [NSMutableArray array];
+    for (NSDictionary *row in rows) {
+        if ([row[@"remembered"] boolValue] && row[@"uuid"] && [liveUUIDs containsObject:row[@"uuid"]]) continue;
+        [result addObject:row];
+    }
+    return result;
+}
+
+static BOOL projectionTargetAvailable(NSDictionary *row) {
+    if ([row[@"virtual"] boolValue]) return NO;
+    if ([row[@"enabled"] boolValue]) return YES;
+    if ([row[@"connected"] isEqual:@NO]) return NO;
+    return ![row[@"remembered"] boolValue] || [row[@"connected"] isEqual:@YES];
+}
+
+static BOOL displaysSleeping(NSArray *rows) {
+    for (NSDictionary *row in rows)
+        if (![row[@"virtual"] boolValue] && [row[@"online"] boolValue] && [row[@"asleep"] boolValue]) return YES;
+    return NO;
+}
+
 static NSArray<NSDictionary *> *discover(NSString **error) {
     CGDirectDisplayID ids[256];
     uint32_t count = 0;
@@ -189,11 +218,13 @@ static NSArray<NSDictionary *> *discover(NSString **error) {
             @"id": @(display), @"builtin": @(builtin),
             @"name": displayName(info, builtin, display),
             @"online": @(online), @"active": @(active), @"mirror": @(mirror),
+            @"asleep": @(online && CGDisplayIsAsleep(display)),
             @"enabled": @(online && (active || mirror)),
             @"mirrorOf": @(CGDisplayMirrorsDisplay(display)),
             @"vendor": @(CGDisplayVendorNumber(display)), @"product": @(CGDisplayModelNumber(display)),
             @"serial": @(CGDisplaySerialNumber(display)),
             @"width": @(CGDisplayPixelsWide(display)), @"height": @(CGDisplayPixelsHigh(display)),
+            @"logicalWidth": @(CGDisplayBounds(display).size.width),
             @"x": @(CGDisplayBounds(display).origin.x), @"y": @(CGDisplayBounds(display).origin.y),
             @"virtual": @([virtual respondsToSelector:@selector(boolValue)] && [virtual boolValue]),
             @"exclusive": @([info[@"DisplayIsSLVDExclusive"] boolValue]),
@@ -220,6 +251,7 @@ static NSArray<NSDictionary *> *discover(NSString **error) {
             NSMutableDictionary *row = [old mutableCopy];
             row[@"enabled"] = @NO;
             row[@"online"] = @NO;
+            row[@"asleep"] = @NO;
             row[@"active"] = @NO;
             row[@"mirror"] = @NO;
             row[@"main"] = @NO;
@@ -235,7 +267,7 @@ static NSArray<NSDictionary *> *discover(NSString **error) {
         row[@"connected"] = connectionState(row, monitors);
         byID[identifier] = row;
     }
-    return [[byID allValues] sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
+    return [currentDisplayRows(byID.allValues) sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
         return [a[@"id"] compare:b[@"id"]];
     }];
 }
@@ -389,6 +421,12 @@ static int lidState(void) {
 // Pure, time-driven policy. It can only produce enable requests for built-ins.
 static NSArray *recoveryPlan(NSArray *rows, int lid, double now,
                             GuardState *state, NSString **reason) {
+    if (displaysSleeping(rows)) {
+        state->missingSince = -1;
+        state->lastScan = now;
+        *reason = @"display-sleeping";
+        return @[];
+    }
     // A long scan gap can be sleep or a suspended process: start a new grace period.
     if (state->lastScan >= 0 && now - state->lastScan > 15) state->missingSince = -1;
     state->lastScan = now;
@@ -764,20 +802,21 @@ static NSDictionary *savedLayout(NSDictionary *layouts, NSDictionary *configurat
     return builtinMain != externalMain ? layout : nil;
 }
 
-// Choose only one second screen; leave unrelated virtual displays untouched.
+// All connected physical displays participate. The legacy ID argument only
+// selects a layout reference; it must never pull an unplugged cache into a plan.
 static NSDictionary *projectionPlan(NSArray *rows, NSString *mode, NSNumber *externalID, NSString **error) {
     if (![@[@"internal", @"duplicate", @"extend", @"external"] containsObject:mode]) {
         *error = localize(@"未知投影模式。", @"Unknown projection mode."); return nil;
     }
     NSDictionary *builtin = nil, *external = nil;
     NSMutableArray *externals = [NSMutableArray array];
-    for (NSDictionary *row in rows) {
+    for (NSDictionary *row in currentDisplayRows(rows)) {
         if ([row[@"enabled"] boolValue] && [row[@"exclusive"] boolValue]) {
             *error = localize(@"系统处于独占虚拟显示模式，暂不能切换。", @"Cannot switch modes while an exclusive virtual display is active."); return nil;
         }
         if ([row[@"virtual"] boolValue]) continue;
         if ([row[@"builtin"] boolValue]) builtin = row;
-        else [externals addObject:row];
+        else if (projectionTargetAvailable(row)) [externals addObject:row];
     }
     if (!builtin) { *error = localize(@"未找到内置屏，当前仅支持带内置屏的 Mac。", @"Built-in display not found. Projection modes require a Mac with a built-in display."); return nil; }
     for (NSDictionary *row in externals) {
@@ -800,80 +839,108 @@ static BOOL isEnabled(CGDirectDisplayID identifier) {
            CGDisplayIsInMirrorSet(identifier) || CGDisplayIsInHWMirrorSet(identifier));
 }
 
-static BOOL waitEnabled(CGDirectDisplayID identifier) {
-    for (int i = 0; i < 30; i++) {
-        if (isEnabled(identifier)) return YES;
-        usleep(100000);
+static NSString *projectionReadinessIssue(NSDictionary *configuration, NSArray *observed);
+static NSDictionary *observedDisplay(NSDictionary *target, NSArray *observed);
+
+// Rebase all pair records onto ONE built-in origin. Old pair records use
+// different anchors when one external screen is main; raw coordinates cannot mix.
+static NSDictionary *allProjectionOrigins(NSDictionary *configuration) {
+    NSDictionary *builtin = configuration[@"builtin"];
+    NSArray *externals = configuration[@"externals"];
+    NSDictionary *pairs = configuration[@"pairs"] ?: @{};
+    NSDictionary *reference = configuration[@"layout"];
+    for (NSDictionary *row in externals) {
+        NSDictionary *pair = pairs[builtinKey(row)];
+        if (validOrigin(pair[@"builtin"]) && validOrigin(pair[@"external"]) &&
+            [pair[@"external"][@"x"] intValue] == 0 && [pair[@"external"][@"y"] intValue] == 0) {
+            reference = pair; break;
+        }
     }
-    return NO;
+    NSDictionary *anchor = validOrigin(reference[@"builtin"]) ? reference[@"builtin"] : @{@"x": @0, @"y": @0};
+    NSMutableDictionary *origins = [NSMutableDictionary dictionaryWithObject:anchor forKey:[builtin[@"id"] stringValue]];
+    double right = [anchor[@"x"] doubleValue] + MAX(1, [(builtin[@"logicalWidth"] ?: builtin[@"width"]) doubleValue]);
+    // First place known screens so fallback screens cannot overlap them on the right.
+    for (NSDictionary *row in externals) {
+        NSDictionary *pair = pairs[builtinKey(row)];
+        if (!validOrigin(pair[@"builtin"]) || !validOrigin(pair[@"external"])) {
+            pair = captureLayout(builtin, row); // No saved layout: retain macOS's valid arrangement.
+        }
+        if (!pair) continue;
+        NSDictionary *origin = @{@"x": @([anchor[@"x"] doubleValue] + [pair[@"external"][@"x"] doubleValue] - [pair[@"builtin"][@"x"] doubleValue]),
+                                 @"y": @([anchor[@"y"] doubleValue] + [pair[@"external"][@"y"] doubleValue] - [pair[@"builtin"][@"y"] doubleValue])};
+        if (!validOrigin(origin)) continue;
+        origins[[row[@"id"] stringValue]] = origin;
+        right = MAX(right, [origin[@"x"] doubleValue] + MAX(1, [(row[@"logicalWidth"] ?: row[@"width"]) doubleValue]));
+    }
+    for (NSDictionary *row in externals) {
+        NSString *key = [row[@"id"] stringValue];
+        if (origins[key]) continue;
+        if (right > INT32_MAX) return nil;
+        origins[key] = @{@"x": @(right), @"y": anchor[@"y"]};
+        right += MAX(1, [(row[@"logicalWidth"] ?: row[@"width"]) doubleValue]);
+    }
+    return origins;
 }
 
+// Compatibility helper used by the arrangement tests and diagnostics.
 static NSDictionary *projectionOrigins(NSDictionary *configuration, int32_t builtinWidth) {
-    NSString *mode = configuration[@"mode"];
-    NSDictionary *layout = [mode isEqual:@"extend"] ? configuration[@"layout"] : nil;
-    if (layout) return layout;
-    return @{@"builtin": @{@"x": @0, @"y": @0},
-             @"external": @{@"x": [mode isEqual:@"extend"] ? @(builtinWidth) : @0, @"y": @0}};
+    NSDictionary *layout = [configuration[@"mode"] isEqual:@"extend"] ? configuration[@"layout"] : nil;
+    return layout ?: @{@"builtin": @{@"x": @0, @"y": @0},
+                       @"external": @{@"x": [configuration[@"mode"] isEqual:@"extend"] ? @(builtinWidth) : @0, @"y": @0}};
 }
 
-static BOOL projectionLayout(NSDictionary *configuration, NSString **error) {
+// The transaction and regression tests consume this same operation plan.
+static NSArray *projectionOperations(NSDictionary *configuration, NSArray *observed, NSString **error) {
+    *error = projectionReadinessIssue(configuration, observed);
+    if (*error) return nil;
     NSString *mode = configuration[@"mode"];
-    CGDirectDisplayID internal = [configuration[@"builtin"][@"id"] unsignedIntValue];
-    CGDirectDisplayID external = [configuration[@"external"][@"id"] unsignedIntValue];
-    BOOL internalOnly = [mode isEqual:@"internal"], externalOnly = [mode isEqual:@"external"];
-    BOOL duplicate = [mode isEqual:@"duplicate"];
-    // The surviving screen must be usable BEFORE disabling any screen.
-    CGDirectDisplayID survivor = externalOnly ? external : internal;
-    BOOL anyExternalEnabled = NO;
+    NSDictionary *builtin = observedDisplay(configuration[@"builtin"], observed) ?: configuration[@"builtin"];
+    NSNumber *internal = builtin[@"id"];
+    NSMutableArray *targets = [NSMutableArray arrayWithObject:builtin];
     for (NSDictionary *row in configuration[@"externals"])
-        if (isEnabled([row[@"id"] unsignedIntValue])) { anyExternalEnabled = YES; break; }
-    if ((!externalOnly && !isEnabled(survivor)) ||
-        (externalOnly && !anyExternalEnabled) ||
-        (!internalOnly && !externalOnly && !isEnabled(external))) {
-        *error = localize(@"目标屏幕尚不可用，保留当前屏幕。", @"Target display is not yet usable. Keeping the current display."); return NO;
+        [targets addObject:observedDisplay(row, observed) ?: row];
+    NSMutableArray *operations = [NSMutableArray array];
+    for (NSDictionary *row in targets) {
+        if (![row[@"enabled"] boolValue] || [row[@"remembered"] boolValue]) continue;
+        if ([mode isEqual:@"duplicate"] && ![row[@"id"] isEqual:internal]) continue;
+        if ([row[@"mirror"] boolValue] || [row[@"mirrorOf"] unsignedIntValue])
+            [operations addObject:@{@"kind": @"mirror", @"id": row[@"id"], @"source": @0}];
     }
+    if ([mode isEqual:@"duplicate"]) {
+        for (NSDictionary *row in targets) if (![row[@"id"] isEqual:internal])
+            [operations addObject:@{@"kind": @"mirror", @"id": row[@"id"], @"source": internal}];
+    } else if ([mode isEqual:@"extend"]) {
+        NSDictionary *origins = allProjectionOrigins(configuration);
+        if (!origins) { *error = localize(@"显示器排列坐标超出范围。", @"Display layout coordinates are out of range."); return nil; }
+        for (NSDictionary *row in targets) {
+            NSDictionary *origin = origins[[row[@"id"] stringValue]];
+            if (!validOrigin(origin)) { *error = localize(@"缺少有效的显示器排列。", @"A display layout is missing."); return nil; }
+            [operations addObject:@{@"kind": @"origin", @"id": row[@"id"], @"x": origin[@"x"], @"y": origin[@"y"]}];
+        }
+    }
+    if ([mode isEqual:@"external"]) {
+        if ([builtin[@"enabled"] boolValue]) [operations addObject:@{@"kind": @"enabled", @"id": internal, @"enabled": @NO}];
+    } else if ([mode isEqual:@"internal"]) {
+        for (NSDictionary *row in targets) if (![row[@"id"] isEqual:internal] && [row[@"enabled"] boolValue])
+            [operations addObject:@{@"kind": @"enabled", @"id": row[@"id"], @"enabled": @NO}];
+    }
+    return operations;
+}
+
+static BOOL projectionLayout(NSDictionary *configuration, NSArray *observed, NSString **error) {
+    NSArray *operations = projectionOperations(configuration, observed, error);
+    if (!operations) return NO;
     CGDisplayConfigRef config = NULL;
     CGError status = CGBeginDisplayConfiguration(&config);
     if (status != kCGErrorSuccess) { *error = localize(@"无法创建显示布局事务。", @"Unable to begin the display layout transaction."); return NO; }
-    if (isEnabled(internal)) status = CGConfigureDisplayMirrorOfDisplay(config, internal, kCGNullDirectDisplay);
-    for (NSDictionary *row in configuration[@"externals"]) {
-        uint32_t identifier = [row[@"id"] unsignedIntValue];
-        if (!isEnabled(identifier)) continue;
-        if (status == kCGErrorSuccess)
-            status = CGConfigureDisplayMirrorOfDisplay(config, identifier, kCGNullDirectDisplay);
-    }
-    if (status == kCGErrorSuccess && duplicate) {
-        for (NSDictionary *row in configuration[@"externals"]) {
-            uint32_t identifier = [row[@"id"] unsignedIntValue];
-            if (!isEnabled(identifier)) continue;
-            status = CGConfigureDisplayMirrorOfDisplay(config, identifier, internal);
-            if (status != kCGErrorSuccess) break;
-        }
-    }
-    NSDictionary *origins = projectionOrigins(configuration, (int32_t)CGDisplayBounds(internal).size.width);
-    if (status == kCGErrorSuccess && !externalOnly)
-        status = CGConfigureDisplayOrigin(config, internal, [origins[@"builtin"][@"x"] intValue], [origins[@"builtin"][@"y"] intValue]);
-    if (status == kCGErrorSuccess && !internalOnly && !duplicate) {
-        int32_t offset = (int32_t)CGDisplayBounds(internal).size.width;
-        NSUInteger index = 0;
-        for (NSDictionary *row in configuration[@"externals"]) {
-            uint32_t identifier = [row[@"id"] unsignedIntValue];
-            if (!isEnabled(identifier)) continue;
-            NSDictionary *saved = configuration[@"externalLayouts"][[row[@"id"] stringValue]];
-            int32_t x = saved ? [saved[@"x"] intValue] : (index == 0 ? [origins[@"external"][@"x"] intValue] : offset);
-            int32_t y = saved ? [saved[@"y"] intValue] : (index == 0 ? [origins[@"external"][@"y"] intValue] : 0);
-            status = CGConfigureDisplayOrigin(config, identifier, x, y);
-            if (status != kCGErrorSuccess) break;
-            offset += (int32_t)CGDisplayBounds(identifier).size.width;
-            index++;
-        }
-    }
-    if (status == kCGErrorSuccess && externalOnly && isEnabled(internal))
-        status = configureEnabled(config, internal, false);
-    for (NSDictionary *row in configuration[@"externals"]) {
-        uint32_t identifier = [row[@"id"] unsignedIntValue];
-        if (externalOnly || duplicate || [mode isEqual:@"extend"] || !isEnabled(identifier) || (!internalOnly && identifier == external)) continue;
-        if (status == kCGErrorSuccess) status = configureEnabled(config, identifier, false);
+    for (NSDictionary *operation in operations) {
+        uint32_t identifier = [operation[@"id"] unsignedIntValue];
+        if ([operation[@"kind"] isEqual:@"mirror"])
+            status = CGConfigureDisplayMirrorOfDisplay(config, identifier, [operation[@"source"] unsignedIntValue]);
+        else if ([operation[@"kind"] isEqual:@"origin"])
+            status = CGConfigureDisplayOrigin(config, identifier, [operation[@"x"] intValue], [operation[@"y"] intValue]);
+        else status = configureEnabled(config, identifier, [operation[@"enabled"] boolValue]);
+        if (status != kCGErrorSuccess) break;
     }
     if (status != kCGErrorSuccess) {
         CGCancelDisplayConfiguration(config);
@@ -886,40 +953,116 @@ static BOOL projectionLayout(NSDictionary *configuration, NSString **error) {
     return YES;
 }
 
-static BOOL projectionMatches(NSDictionary *configuration) {
+// Resolve against fresh enumeration after each commit; WindowServer can replace IDs.
+static NSDictionary *observedDisplay(NSDictionary *target, NSArray *observed) {
+    NSArray *rows = currentDisplayRows(observed);
+    NSString *uuid = [target[@"uuid"] isKindOfClass:NSString.class] ? target[@"uuid"] : nil;
+    for (NSDictionary *row in rows) {
+        if (![row[@"id"] isEqual:target[@"id"]]) continue;
+        if (uuid && row[@"uuid"] && ![row[@"uuid"] isEqual:uuid]) continue;
+        return row;
+    }
+    if (uuid) for (NSDictionary *row in rows) if ([row[@"uuid"] isEqual:uuid]) return row;
+    return nil;
+}
+
+static BOOL observedEnabled(NSDictionary *row) {
+    return row && ![row[@"remembered"] boolValue] && [row[@"enabled"] boolValue];
+}
+
+static NSNumber *mirrorRoot(NSDictionary *row, NSArray *rows) {
+    NSMutableSet *visited = [NSMutableSet set];
+    while (observedEnabled(row)) {
+        NSNumber *identifier = row[@"id"];
+        if (!identifier || [visited containsObject:identifier]) return nil;
+        [visited addObject:identifier];
+        uint32_t parent = [row[@"mirrorOf"] unsignedIntValue];
+        if (parent == 0) return identifier;
+        if (parent == UINT32_MAX) return nil;
+        row = observedDisplay(@{@"id": @(parent)}, rows);
+    }
+    return nil;
+}
+
+static NSArray *requiredProjectionDisplays(NSDictionary *configuration) {
+    NSMutableArray *targets = [NSMutableArray array];
+    if (![configuration[@"mode"] isEqual:@"external"]) [targets addObject:configuration[@"builtin"]];
+    if (![configuration[@"mode"] isEqual:@"internal"]) [targets addObjectsFromArray:configuration[@"externals"]];
+    return targets;
+}
+
+static NSString *projectionReadinessIssue(NSDictionary *configuration, NSArray *observed) {
+    for (NSDictionary *target in requiredProjectionDisplays(configuration)) {
+        if (!observedEnabled(observedDisplay(target, observed)))
+            return [NSString stringWithFormat:localize(@"屏幕尚未启用：%@（ID %@）。", @"Display is not yet enabled: %@ (ID %@)."),
+                    target[@"name"] ?: @"", target[@"id"]];
+    }
+    return nil;
+}
+
+// Verify the requested mode, not a single selected screen or exact pixel coordinates.
+static NSString *projectionStateIssue(NSDictionary *configuration, NSArray *observed) {
     NSString *mode = configuration[@"mode"];
-    uint32_t internal = [configuration[@"builtin"][@"id"] unsignedIntValue];
-    uint32_t external = [configuration[@"external"][@"id"] unsignedIntValue];
-    BOOL internalOnly = [mode isEqual:@"internal"], externalOnly = [mode isEqual:@"external"];
-    if (isEnabled(internal) != !externalOnly) return NO;
-    if (!internalOnly && !isEnabled(external)) return NO;
-    for (NSDictionary *row in configuration[@"externals"]) {
-        uint32_t identifier = [row[@"id"] unsignedIntValue];
-        if (!externalOnly && ![mode isEqual:@"extend"] && (internalOnly || identifier != external) && isEnabled(identifier)) return NO;
-        if ([mode isEqual:@"extend"] && !isEnabled(identifier)) return NO;
+    NSString *readiness = projectionReadinessIssue(configuration, observed);
+    if (readiness) return readiness;
+    NSDictionary *builtin = observedDisplay(configuration[@"builtin"], observed);
+    if ([mode isEqual:@"external"] && observedEnabled(builtin))
+        return localize(@"内置屏幕尚未停用。", @"The built-in display is still enabled.");
+    if ([mode isEqual:@"internal"]) {
+        for (NSDictionary *row in currentDisplayRows(observed))
+            if (![row[@"builtin"] boolValue] && ![row[@"virtual"] boolValue] && observedEnabled(row))
+                return localize(@"仍有外接屏幕启用。", @"An external display is still enabled.");
+        return nil;
     }
+    if ([mode isEqual:@"external"]) return nil;
     if ([mode isEqual:@"duplicate"]) {
-        BOOL found = NO;
-        for (NSDictionary *row in configuration[@"externals"]) {
-            uint32_t identifier = [row[@"id"] unsignedIntValue];
-            if (!isEnabled(identifier)) return NO;
-            found = YES;
-            if (CGDisplayMirrorsDisplay(identifier) != internal &&
-                CGDisplayMirrorsDisplay(internal) != identifier) return NO;
+        NSNumber *root = mirrorRoot(builtin, observed);
+        if (!root) return localize(@"内置屏幕的镜像组尚未稳定。", @"The built-in mirror group is not yet stable.");
+        for (NSDictionary *target in configuration[@"externals"]) {
+            NSDictionary *row = observedDisplay(target, observed);
+            if (![mirrorRoot(row, observed) isEqual:root])
+                return [NSString stringWithFormat:localize(@"屏幕尚未加入同一镜像组：%@。", @"Display is not in the same mirror group yet: %@."), target[@"name"] ?: @""];
         }
-        return found;
+        return nil;
     }
-    if ([mode isEqual:@"extend"]) {
-        // WindowServer may normalize origins while committing a layout. The
-        // stable facts are that both displays are active and no longer mirrored.
-        if (CGDisplayIsInMirrorSet(internal) || CGDisplayIsInHWMirrorSet(internal)) return NO;
-        for (NSDictionary *row in configuration[@"externals"]) {
-            uint32_t identifier = [row[@"id"] unsignedIntValue];
-            if (CGDisplayIsInMirrorSet(identifier) || CGDisplayIsInHWMirrorSet(identifier)) return NO;
+    for (NSDictionary *target in requiredProjectionDisplays(configuration)) {
+        NSDictionary *row = observedDisplay(target, observed);
+        if ([row[@"mirror"] boolValue] || [row[@"mirrorOf"] unsignedIntValue])
+            return localize(@"仍有屏幕处于镜像模式。", @"A display is still mirrored.");
+    }
+    return nil;
+}
+
+static NSDictionary *reboundProjection(NSDictionary *configuration, NSArray *observed) {
+    NSMutableDictionary *fresh = [configuration mutableCopy];
+    fresh[@"builtin"] = observedDisplay(configuration[@"builtin"], observed) ?: configuration[@"builtin"];
+    NSMutableArray *externals = [NSMutableArray array];
+    for (NSDictionary *row in configuration[@"externals"])
+        [externals addObject:observedDisplay(row, observed) ?: row];
+    fresh[@"externals"] = externals;
+    fresh[@"external"] = observedDisplay(configuration[@"external"], observed) ?: configuration[@"external"];
+    return fresh;
+}
+
+static NSArray *awaitProjection(NSDictionary *configuration, BOOL readinessOnly, NSString **issue) {
+    double deadline = NSProcessInfo.processInfo.systemUptime + 8;
+    do {
+        NSArray *rows = discover(issue);
+        if (rows) {
+            *issue = readinessOnly ? projectionReadinessIssue(configuration, rows) : projectionStateIssue(configuration, rows);
+            if (!*issue) return rows;
         }
-        return YES;
-    }
-    return YES;
+        usleep(100000);
+    } while (NSProcessInfo.processInfo.systemUptime < deadline);
+    return nil;
+}
+
+static void saveProjectionDiagnostic(NSDictionary *configuration, NSString *phase, NSString *issue) {
+    NSString *ignored = nil;
+    NSArray *rows = discover(&ignored) ?: @[];
+    writeSessionFile(@"last-projection-failure.json", @{@"mode": configuration[@"mode"], @"phase": phase,
+        @"issue": issue ?: @"unknown", @"requested": configuration,
+        @"observed": rows, @"time": NSDate.date.description}, &ignored);
 }
 
 static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, BOOL dryRun) {
@@ -939,20 +1082,20 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         NSDictionary *layout = savedLayout(layouts, configuration, bootID());
         if ([mode isEqual:@"extend"] && layout) configuration[@"layout"] = layout;
         if ([mode isEqual:@"extend"]) {
-            NSMutableDictionary *externalLayouts = [NSMutableDictionary dictionary];
+            NSMutableDictionary *pairs = [NSMutableDictionary dictionary];
             for (NSDictionary *row in configuration[@"externals"]) {
                 NSString *key = layoutKey(configuration[@"builtin"], row, bootID());
                 NSDictionary *saved = key ? layouts[key] : nil;
-                if ([saved isKindOfClass:NSDictionary.class] && validOrigin(saved[@"external"]))
-                    externalLayouts[[row[@"id"] stringValue]] = saved[@"external"];
+                if ([saved isKindOfClass:NSDictionary.class] && validOrigin(saved[@"builtin"]) && validOrigin(saved[@"external"]))
+                    pairs[builtinKey(row)] = saved;
             }
-            if (externalLayouts.count) configuration[@"externalLayouts"] = externalLayouts;
+            configuration[@"pairs"] = pairs;
         }
         if (dryRun) {
             NSData *data = [NSJSONSerialization dataWithJSONObject:configuration options:NSJSONWritingPrettyPrinted error:nil];
             fwrite(data.bytes, 1, data.length, stdout); putchar('\n'); return 0;
         }
-        BOOL externalOnly = [mode isEqual:@"external"], internalOnly = [mode isEqual:@"internal"], duplicate = [mode isEqual:@"duplicate"];
+        BOOL externalOnly = [mode isEqual:@"external"];
         if (!externalOnly && lidState() != 0) {
             fail(localize(@"请先打开笔记本屏幕，再选择包含内置屏的模式。", @"Open the laptop lid before selecting a mode that uses the built-in display.")); return 2;
         }
@@ -962,46 +1105,32 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
             fail(error); return 1;
         }
         if (!saveRemembered(rows, &error)) { fail(error); return 1; }
-        if (projectionMatches(configuration)) {
+        if (!projectionStateIssue(configuration, rows)) {
             recordBuiltinIntent(rows, externalOnly ? @"off" : @"on", @"builtin");
             puts(localize(@"已经处于所选屏幕模式。", @"The selected display mode is already active.").UTF8String); return 0;
         }
         NSMutableArray *enable = [NSMutableArray array];
-        if (!externalOnly && ![configuration[@"builtin"][@"enabled"] boolValue])
-            [enable addObject:@{@"display": configuration[@"builtin"], @"enabled": @YES}];
-        if (!internalOnly) {
-            if (externalOnly || duplicate || [mode isEqual:@"extend"]) {
-                for (NSDictionary *row in configuration[@"externals"])
-                    if (![row[@"enabled"] boolValue])
-                        [enable addObject:@{@"display": row, @"enabled": @YES}];
-            } else if (![configuration[@"external"][@"enabled"] boolValue]) {
-                [enable addObject:@{@"display": configuration[@"external"], @"enabled": @YES}];
-            }
+        for (NSDictionary *row in requiredProjectionDisplays(configuration))
+            if (!observedEnabled(row)) [enable addObject:@{@"display": row, @"enabled": @YES}];
+        if (enable.count && !apply(enable, &error)) {
+            saveProjectionDiagnostic(configuration, @"enable", error); fail(error); return 1;
         }
-        if (enable.count && !apply(enable, &error)) { fail(error); return 1; }
-        uint32_t internal = [configuration[@"builtin"][@"id"] unsignedIntValue];
-        uint32_t external = [configuration[@"external"][@"id"] unsignedIntValue];
-        BOOL allExternalReady = YES;
-        if (externalOnly || duplicate || [mode isEqual:@"extend"]) for (NSDictionary *row in configuration[@"externals"])
-            allExternalReady = allExternalReady && waitEnabled([row[@"id"] unsignedIntValue]);
-        if ((!externalOnly && !waitEnabled(internal)) ||
-            (externalOnly && !allExternalReady) || (!internalOnly && !externalOnly && !waitEnabled(external))) {
-            fail(localize(@"目标屏幕未能启用，未停用当前屏幕。请检查连接后重试。", @"The target display could not be enabled. The current display was kept enabled. Check the connection and retry.")); return 3;
+        NSArray *readyRows = awaitProjection(configuration, YES, &error);
+        if (!readyRows) {
+            saveProjectionDiagnostic(configuration, @"readiness", error);
+            fail(error ?: localize(@"目标屏幕尚未启用，保留当前屏幕。", @"Target displays are not ready; current displays were kept enabled.")); return 3;
         }
-        // With no history, retain an arrangement restored by macOS on re-enabling.
-        if ([mode isEqual:@"extend"] && !configuration[@"layout"]) {
-            NSArray *enabledRows = discover(&error);
-            NSDictionary *enabledPlan = enabledRows ? projectionPlan(enabledRows, mode, @(external), &error) : nil;
-            NSDictionary *systemLayout = enabledPlan ? captureLayout(enabledPlan[@"builtin"], enabledPlan[@"external"]) : nil;
-            if (systemLayout) configuration[@"layout"] = systemLayout;
+        configuration = [reboundProjection(configuration, readyRows) mutableCopy];
+        if (!projectionLayout(configuration, readyRows, &error)) {
+            saveProjectionDiagnostic(configuration, @"layout", error); fail(error); return 1;
         }
-        if (!projectionLayout(configuration, &error)) { fail(error); return 1; }
-        recordBuiltinIntent(rows, externalOnly ? @"off" : @"on", @"builtin");
-        for (int i = 0; i < 80; i++) {
-            if (projectionMatches(configuration)) { puts(localize(@"屏幕模式切换完成。", @"Display mode switched.").UTF8String); return 0; }
-            usleep(100000);
+        recordBuiltinIntent(readyRows, externalOnly ? @"off" : @"on", @"builtin");
+        if (awaitProjection(configuration, NO, &error)) {
+            puts(localize(@"屏幕模式切换完成。", @"Display mode switched.").UTF8String); return 0;
         }
-        fail(localize(@"配置已提交，系统状态尚未确认；请刷新查看当前模式。", @"Configuration committed, but the system state is not yet confirmed. Refresh to check the current mode.")); return 3;
+        saveProjectionDiagnostic(configuration, @"verification", error);
+        fail([NSString stringWithFormat:localize(@"配置已提交，但未达到所选模式：%@", @"Configuration committed but the requested mode was not reached: %@"), error ?: @""]); return 3;
+
     } @finally { if (fd >= 0) close(fd); }
 }
 
@@ -1059,6 +1188,14 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         NSString *reason = nil;
         double now = NSProcessInfo.processInfo.systemUptime;
         int lid = lidState();
+        if (displaysSleeping(rows)) {
+            _state.missingSince = -1;
+            _state.lastScan = now;
+            self.memory.externalStableSince = -1;
+            if (![self.lastReason isEqual:@"display-sleeping"]) guardLog(@"display-sleeping");
+            self.lastReason = @"display-sleeping";
+            return;
+        }
         if (_state.lastScan >= 0 && now - _state.lastScan > 15 && self.memory.preferences.count) {
             self.memory.pendingReconnect = YES;
             self.memory.externalStableSince = -1;
@@ -1099,6 +1236,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         // Read all state again immediately before committing; don't act on an old event.
         NSArray *fresh = discover(&error);
         if (!fresh) { _state.missingSince = -1; return; }
+        if (displaysSleeping(fresh)) { _state.missingSince = -1; return; }
         now = NSProcessInfo.processInfo.systemUptime;
         importManualIntent(self.memory);
         if (restoring) {

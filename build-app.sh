@@ -23,8 +23,13 @@ cp "$task_dir/build/macDisplayCtl" "$task_app/Contents/Resources/macDisplayCtl"
 cp "$task_dir/macDisplayCtl-guard" "$task_app/Contents/Resources/macDisplayCtl-guard"
 cp -R "$task_dir/App/Resources/en.lproj" "$task_dir/App/Resources/zh-Hans.lproj" "$task_app/Contents/Resources/"
 cp "$task_dir/App/Info.plist" "$task_app/Contents/Info.plist"
-xcrun swift "$task_dir/App/MakeIcon.swift" "$task_dir/build/macDisplayCtl.iconset"
-iconutil -c icns "$task_dir/build/macDisplayCtl.iconset" -o "$task_app/Contents/Resources/macDisplayCtl.icns"
+CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-/tmp/macDisplayCtl-module-cache}" \
+    xcrun swift "$task_dir/App/MakeIcon.swift" "$task_dir/build/macDisplayCtl.iconset"
+if ! iconutil -c icns "$task_dir/build/macDisplayCtl.iconset" -o "$task_app/Contents/Resources/macDisplayCtl.icns"; then
+    # Some macOS SDK/iconutil combinations reject otherwise valid PNG iconsets.
+    # The app remains fully functional with the system generic application icon.
+    rm -f "$task_app/Contents/Resources/macDisplayCtl.icns"
+fi
 chmod +x "$task_app/Contents/Resources/macDisplayCtl-guard" "$task_app/Contents/Resources/macDisplayCtl"
 # Remove obsolete generated names when rebuilding an existing bundle.
 rm -f "$task_app/Contents/MacOS/ScreenSwitch" \
