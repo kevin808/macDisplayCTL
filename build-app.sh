@@ -3,6 +3,8 @@ set -eu
 task_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 task_app="$task_dir/build/macDisplayCtl.app"
 mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources"
+task_module_cache="$task_dir/build/ModuleCache"
+mkdir -p "$task_module_cache"
 # Set ARCHS="arm64 x86_64" to produce a Universal app for distribution.
 task_archs=${ARCHS:-$(uname -m)}
 for task_arch in $task_archs; do
@@ -10,7 +12,7 @@ for task_arch in $task_archs; do
     xcrun clang -arch "$task_arch" -mmacosx-version-min=13.0 -fobjc-arc -O2 -Wall -Wextra \
         -framework Foundation -framework CoreGraphics -framework IOKit \
         "$task_dir/macDisplayCtl.m" -o "$task_dir/build/helper-$task_arch"
-    xcrun swiftc -target "$task_arch-apple-macos13.0" -parse-as-library -O -framework AppKit -framework SwiftUI -framework Carbon \
+    xcrun swiftc -module-cache-path "$task_module_cache" -target "$task_arch-apple-macos13.0" -parse-as-library -O -framework AppKit -framework SwiftUI -framework Carbon \
         "$task_dir/App/Localization.swift" "$task_dir/App/macDisplayCtl.swift" -o "$task_dir/build/app-$task_arch"
 done
 set --
@@ -23,13 +25,8 @@ cp "$task_dir/build/macDisplayCtl" "$task_app/Contents/Resources/macDisplayCtl"
 cp "$task_dir/macDisplayCtl-guard" "$task_app/Contents/Resources/macDisplayCtl-guard"
 cp -R "$task_dir/App/Resources/en.lproj" "$task_dir/App/Resources/zh-Hans.lproj" "$task_app/Contents/Resources/"
 cp "$task_dir/App/Info.plist" "$task_app/Contents/Info.plist"
-CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-/tmp/macDisplayCtl-module-cache}" \
-    xcrun swift "$task_dir/App/MakeIcon.swift" "$task_dir/build/macDisplayCtl.iconset"
-if ! iconutil -c icns "$task_dir/build/macDisplayCtl.iconset" -o "$task_app/Contents/Resources/macDisplayCtl.icns"; then
-    # Some macOS SDK/iconutil combinations reject otherwise valid PNG iconsets.
-    # The app remains fully functional with the system generic application icon.
-    rm -f "$task_app/Contents/Resources/macDisplayCtl.icns"
-fi
+xcrun swift -module-cache-path "$task_module_cache" "$task_dir/App/MakeIcon.swift" "$task_dir/build/macDisplayCtl.iconset"
+cp "$task_dir/build/macDisplayCtl.icns" "$task_app/Contents/Resources/macDisplayCtl.icns"
 chmod +x "$task_app/Contents/Resources/macDisplayCtl-guard" "$task_app/Contents/Resources/macDisplayCtl"
 # Remove obsolete generated names when rebuilding an existing bundle.
 rm -f "$task_app/Contents/MacOS/ScreenSwitch" \
