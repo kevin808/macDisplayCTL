@@ -418,7 +418,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let displayChanged: CGDisplayReconfigurationCallBack = { _, flags, context in
         guard !flags.contains(.beginConfigurationFlag), let context else { return }
         let delegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
-        Task { @MainActor in await delegate.model.refresh() }
+        Task { @MainActor in
+            await delegate.model.refresh()
+            if delegate.window?.isVisible == true { delegate.positionPanel() }
+        }
     }
     private var window: NSWindow!
     private var item: NSStatusItem!
@@ -446,7 +449,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = L10n.text("macDisplayCtl")
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
+        window.isMovable = false
         window.isReleasedWhenClosed = false
         window.backgroundColor = .clear
         window.isOpaque = false
@@ -456,7 +460,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = NSHostingView(rootView: ProjectionPanel(model: model) { [weak self] in
             self?.hidePanel()
         })
-        window.center()
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: L10n.text("macDisplayCtl"))
         item.button?.target = self
@@ -567,10 +570,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if window.isVisible && NSApp.isActive { hidePanel() }
         else { showPanel() }
     }
+    private func positionPanel() {
+        guard let screen = item?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        let area = screen.visibleFrame
+        let margin: CGFloat = 12
+        window.setFrameTopLeftPoint(NSPoint(
+            x: max(area.minX, area.maxX - window.frame.width - margin),
+            y: area.maxY - margin))
+    }
     func showPanel() {
+        positionPanel()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        Task { await model.refresh() }
+        Task {
+            await model.refresh()
+            if window.isVisible { positionPanel() }
+        }
     }
 }
 
