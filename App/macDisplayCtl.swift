@@ -354,12 +354,26 @@ struct AcrylicBackground: View {
     }
 }
 
+// Only the title region initiates dragging; mode buttons remain ordinary buttons.
+struct PanelDragArea: NSViewRepresentable {
+    final class DragView: NSView {
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            window.performDrag(with: event)
+            (window.delegate as? AppDelegate)?.rememberPanelPosition()
+        }
+    }
+    func makeNSView(context: Context) -> DragView { DragView() }
+    func updateNSView(_ nsView: DragView, context: Context) {}
+}
+
 struct ProjectionPanel: View {
     @ObservedObject var model: ScreenModel
     let onClose: () -> Void
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
+                HStack(spacing: 12) {
                 Text(L10n.text("Project")).font(.system(size: 25, weight: .medium))
                 HStack(spacing: 4) {
                     Text("⌃⇧").font(.system(size: 13))
@@ -370,6 +384,9 @@ struct ProjectionPanel: View {
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.3)))
                 .help(L10n.text("Open the panel with Ctrl + Shift + P"))
                 Spacer(minLength: 4)
+                }
+                .frame(maxHeight: .infinity)
+                .overlay(PanelDragArea())
                 if model.busy { ProgressView().controlSize(.small) }
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -382,6 +399,7 @@ struct ProjectionPanel: View {
                 .help(L10n.text("Close panel"))
                 .accessibilityLabel(L10n.text("Close panel"))
             }
+            .frame(height: 40)
             .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 18)
             VStack(spacing: 7) {
                 ForEach(Array(ProjectionMode.allCases.enumerated()), id: \.element.id) { index, mode in
@@ -414,7 +432,7 @@ struct ProjectionPanel: View {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private static let displayChanged: CGDisplayReconfigurationCallBack = { _, flags, context in
         guard !flags.contains(.beginConfigurationFlag), let context else { return }
         let delegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
@@ -450,7 +468,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.isMovable = false
+        window.isMovable = true
+        window.delegate = self
         window.isReleasedWhenClosed = false
         window.backgroundColor = .clear
         window.isOpaque = false
@@ -570,13 +589,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if window.isVisible && NSApp.isActive { hidePanel() }
         else { showPanel() }
     }
+    private let panelPositionKey = "panelTopLeftPosition"
+    func rememberPanelPosition() {
+        guard !CommandLine.arguments.contains("--render-preview") else { return }
+        UserDefaults.standard.set(["x": window.frame.minX, "y": window.frame.maxY], forKey: panelPositionKey)
+    }
     private func positionPanel() {
+        if !CommandLine.arguments.contains("--render-preview"),
+           let saved = UserDefaults.standard.dictionary(forKey: panelPositionKey),
+           let x = saved["x"] as? Double, let y = saved["y"] as? Double,
+           x.isFinite, y.isFinite {
+            let frame = NSRect(x: x, y: y - window.frame.height,
+                               width: window.frame.width, height: window.frame.height)
+            if NSScreen.screens.contains(where: { $0.visibleFrame.contains(frame) }) {
+                window.setFrameTopLeftPoint(NSPoint(x: x, y: y))
+                return
+            }
+        }
         guard let screen = item?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let area = screen.visibleFrame
         let margin: CGFloat = 12
         window.setFrameTopLeftPoint(NSPoint(
             x: max(area.minX, area.maxX - window.frame.width - margin),
             y: area.maxY - margin))
+    }
+    func applicationDidChangeScreenParameters(_ notification: Notification) {
+        if window?.isVisible == true { positionPanel() }
     }
     func showPanel() {
         positionPanel()

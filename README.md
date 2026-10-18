@@ -62,6 +62,8 @@ For command-line use, the `./macDisplayCtl` launcher compiles the helper on firs
 
 ## App usage
 
+The panel initially opens in the upper-right corner. Drag its title area to move it; the position is remembered across launches. If the saved position no longer fits on a screen after a display or resolution change, the panel returns to the upper-right corner.
+
 The app runs without a Dock icon by default. Left-click the menu bar icon to choose **Show Main Window**, **Built-in Only**, **Extend**, **Mirror**, **External Only**, or **Quit**. Right-click has no menu. Press **Ctrl + Shift + P** to open or collapse the panel. While it is open, press `1`, `2`, `3`, or `4` to select a mode.
 
 Global shortcuts **Ctrl + Shift + 1/2/3/4** select Built-in Only, Extend, Mirror, and External Only respectively. The menu displays each shortcut.
