@@ -67,7 +67,33 @@ int main(void) {
         reconnectAssert(projectionStateIssue(projectionPlan(polluted, @"external", nil, &error),
                         @[screen(1, YES, NO, 0), real[1], screen(3, NO, NO, 0)]) != nil,
                         @"external-only does not succeed with a missing second external", &checks);
-        printf("%u display identity and real projection pipeline regressions passed.\n", checks);
+        NSMutableDictionary *disabledInternal = [real[0] mutableCopy];
+        disabledInternal[@"enabled"] = @NO;
+        disabledInternal[@"online"] = @NO;
+        NSMutableDictionary *sleepingExternal = [real[1] mutableCopy];
+        sleepingExternal[@"enabled"] = @NO; sleepingExternal[@"online"] = @YES;
+        sleepingExternal[@"asleep"] = @YES; sleepingExternal[@"connected"] = @NO;
+        NSArray *sleepUnplug = @[disabledInternal, sleepingExternal];
+        reconnectAssert(needsNoExternalRecovery(sleepUnplug, 0), @"open lid and disconnected external permit recovery despite stale sleep flag", &checks);
+        reconnectAssert(!needsNoExternalRecovery(sleepUnplug, 1), @"closed lid never forced on", &checks);
+        reconnectAssert(!needsNoExternalRecovery(sleepUnplug, -1), @"unknown lid not forced on", &checks);
+        GuardState state = newGuardState(); NSString *reason = nil;
+        reconnectAssert(recoveryPlan(sleepUnplug, 0, 10, &state, &reason).count == 0, @"unplug recovery has stability delay", &checks);
+        NSArray *recover = recoveryPlan(sleepUnplug, 0, 11, &state, &reason);
+        reconnectAssert(recover.count == 1 && [recover[0][@"display"][@"id"] isEqual:@1] &&
+                        [recover[0][@"enabled"] boolValue], @"sleep-unplug recovery enables only internal", &checks);
+        sleepingExternal[@"connected"] = @YES;
+        reconnectAssert(!needsNoExternalRecovery(sleepUnplug, 0) &&
+                        recoveryPlan(sleepUnplug, 0, 12, &state, &reason).count == 0, @"connected sleeping external retains normal sleep", &checks);
+        sleepingExternal[@"connected"] = NSNull.null;
+        reconnectAssert(!needsNoExternalRecovery(sleepUnplug, 0), @"unknown connection does not override sleep", &checks);
+        disabledInternal[@"enabled"] = @YES; disabledInternal[@"online"] = @YES; disabledInternal[@"asleep"] = @YES;
+        reconnectAssert(!needsNoExternalRecovery(@[disabledInternal], 0) &&
+                        recoveryPlan(@[disabledInternal], 0, 15, &state, &reason).count == 0, @"normally sleeping enabled internal is not repeatedly awakened", &checks);
+        disabledInternal[@"enabled"] = @NO; disabledInternal[@"online"] = @NO; disabledInternal[@"asleep"] = @NO;
+        reconnectAssert(needsNoExternalRecovery(@[disabledInternal], 0), @"no external records still permits internal rescue", &checks);
+        reconnectAssert(!needsNoExternalRecovery(@[], 0), @"no known internal never guesses an ID", &checks);
+        printf("%u display identity, sleep-unplug recovery and projection regressions passed.\n", checks);
         return 0;
     }
 }

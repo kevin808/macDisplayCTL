@@ -2,6 +2,8 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <IOKit/IOKitLib.h>
 #import <IOKit/pwr_mgt/IOPM.h>
+#import <IOKit/pwr_mgt/IOPMLib.h>
+#import <IOKit/IOMessage.h>
 #include <dlfcn.h>
 #include <sys/sysctl.h>
 #include <sys/file.h>
@@ -207,6 +209,23 @@ static BOOL displaysSleeping(NSArray *rows) {
     for (NSDictionary *row in rows)
         if (![row[@"virtual"] boolValue] && [row[@"online"] boolValue] && [row[@"asleep"] boolValue]) return YES;
     return NO;
+}
+
+// Only positively disconnected external ports count as absent. Unknown ports
+// must not bypass the normal display-sleep guard.
+static BOOL needsNoExternalRecovery(NSArray *rows, int lid) {
+    if (lid != 0) return NO;
+    BOOL disabledBuiltin = NO;
+    for (NSDictionary *row in currentDisplayRows(rows)) {
+        if ([row[@"virtual"] boolValue]) {
+            if ([row[@"enabled"] boolValue] && [row[@"exclusive"] boolValue]) return NO;
+            continue;
+        }
+        if ([row[@"builtin"] boolValue]) {
+            if (![row[@"enabled"] boolValue]) disabledBuiltin = YES;
+        } else if ([row[@"enabled"] boolValue] || ![row[@"connected"] isEqual:@NO]) return NO;
+    }
+    return disabledBuiltin;
 }
 
 static NSArray<NSDictionary *> *discover(NSString **error) {
@@ -440,7 +459,7 @@ static int lidState(void) {
 // Pure, time-driven policy. It can only produce enable requests for built-ins.
 static NSArray *recoveryPlan(NSArray *rows, int lid, double now,
                             GuardState *state, NSString **reason) {
-    if (displaysSleeping(rows)) {
+    if (displaysSleeping(rows) && !needsNoExternalRecovery(rows, lid)) {
         state->missingSince = -1;
         state->lastScan = now;
         *reason = @"display-sleeping";
@@ -1063,7 +1082,7 @@ static NSDictionary *reboundProjection(NSDictionary *configuration, NSArray *obs
 // CoreGraphics can retain the pre-commit display cache for the lifetime of this
 // command. A new read-only helper gets a fresh WindowServer connection. Bound the
 // child lifetime so a stalled display service cannot hang a user-initiated switch.
-static NSArray *freshDisplaySnapshot(NSString **error) {
+static NSData *runFreshHelper(NSArray *arguments, unsigned timeout, NSString **error) {
     uint32_t length = 0;
     _NSGetExecutablePath(NULL, &length);
     NSMutableData *path = [NSMutableData dataWithLength:length];
@@ -1072,10 +1091,10 @@ static NSArray *freshDisplaySnapshot(NSString **error) {
     }
     NSTask *task = [NSTask new];
     task.executableURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path.bytes]];
-    task.arguments = @[@"list", @"--json"];
+    task.arguments = arguments;
     NSPipe *pipe = [NSPipe pipe];
     task.standardOutput = pipe;
-    task.standardError = [NSFileHandle fileHandleWithNullDevice];
+    task.standardError = pipe;
     dispatch_semaphore_t exited = dispatch_semaphore_create(0);
     task.terminationHandler = ^(NSTask *finished) { (void)finished; dispatch_semaphore_signal(exited); };
     NSError *failure = nil;
@@ -1085,7 +1104,7 @@ static NSArray *freshDisplaySnapshot(NSString **error) {
     dispatch_group_async(readers, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         output = [pipe.fileHandleForReading readDataToEndOfFile];
     });
-    if (dispatch_semaphore_wait(exited, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC)) != 0) {
+    if (dispatch_semaphore_wait(exited, dispatch_time(DISPATCH_TIME_NOW, timeout * NSEC_PER_SEC)) != 0) {
         [task terminate];
         if (dispatch_semaphore_wait(exited, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) != 0) {
             kill(task.processIdentifier, SIGKILL);
@@ -1093,9 +1112,20 @@ static NSArray *freshDisplaySnapshot(NSString **error) {
         }
         *error = localize(@"读取显示状态超时。", @"Reading display state timed out."); return nil;
     }
-    if (dispatch_group_wait(readers, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) != 0 || task.terminationStatus != 0) {
+    if (dispatch_group_wait(readers, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) != 0) {
         *error = localize(@"无法读取最新显示状态。", @"Unable to read the latest display state."); return nil;
     }
+    if (task.terminationStatus != 0) {
+        *error = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding] ?: localize(@"显示恢复子进程失败。", @"Display recovery helper failed.");
+        return nil;
+    }
+    return output;
+}
+
+static NSArray *freshDisplaySnapshot(NSString **error) {
+    NSData *output = runFreshHelper(@[@"list", @"--json"], 3, error);
+    if (!output) return nil;
+    NSError *failure = nil;
     id rows = output ? [NSJSONSerialization JSONObjectWithData:output options:0 error:&failure] : nil;
     if (![rows isKindOfClass:NSArray.class]) {
         *error = localize(@"显示状态返回格式无效。", @"Display state response is invalid."); return nil;
@@ -1205,8 +1235,11 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
 @property(strong) ReconnectMemory *memory;
 @property(copy) NSDictionary *lastSavedMemory;
 @property double nextRestoreAttempt;
+@property BOOL systemSleeping;
+@property io_connect_t powerConnection;
 - (void)check;
 - (void)checkUnlocked;
+- (void)resumeRecovery;
 @end
 
 @implementation DisplayGuard
@@ -1218,6 +1251,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
     return self;
 }
 - (void)check {
+    if (self.systemSleeping) return;
     if (self.dryRun) { [self checkUnlocked]; return; }
     NSString *error = nil;
     int fd = operationLock(NO, &error);
@@ -1227,7 +1261,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
 - (void)checkUnlocked {
     @autoreleasepool {
         NSString *error = nil;
-        NSArray *rows = discover(&error);
+        NSArray *rows = freshDisplaySnapshot(&error);
         if (!rows) {
             _state.missingSince = -1;
             if (![error isEqual:self.lastError]) guardLog(error);
@@ -1247,7 +1281,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         NSString *reason = nil;
         double now = NSProcessInfo.processInfo.systemUptime;
         int lid = lidState();
-        if (displaysSleeping(rows)) {
+        if (displaysSleeping(rows) && !needsNoExternalRecovery(rows, lid)) {
             _state.missingSince = -1;
             _state.lastScan = now;
             self.memory.externalStableSince = -1;
@@ -1293,9 +1327,9 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         }
         if (!changes.count) return;
         // Read all state again immediately before committing; don't act on an old event.
-        NSArray *fresh = discover(&error);
+        NSArray *fresh = freshDisplaySnapshot(&error);
         if (!fresh) { _state.missingSince = -1; return; }
-        if (displaysSleeping(fresh)) { _state.missingSince = -1; return; }
+        if (displaysSleeping(fresh) && !needsNoExternalRecovery(fresh, lidState())) { _state.missingSince = -1; return; }
         now = NSProcessInfo.processInfo.systemUptime;
         importManualIntent(self.memory);
         if (restoring) {
@@ -1312,13 +1346,25 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
                                localize(@"预览：没有可用实体屏且已开盖，将只启用内置屏。", @"Preview: no usable physical display and the lid is open; enable only the built-in display."));
             return;
         }
-        if (!saveRemembered(fresh, &error) || !apply(changes, &error)) {
+        // check() holds the operation lock; the private recovery worker avoids
+        // locking it again and independently rechecks lid/targets before enabling.
+        BOOL committed = saveRemembered(fresh, &error) &&
+            (restoring ? apply(changes, &error) : runFreshHelper(@[@"--recover-builtin"], 20, &error) != nil);
+        if (!committed) {
             guardLog([NSString stringWithFormat:localize(@"恢复失败，稍后重试：%@", @"Recovery failed; will retry: %@"), error]);
         } else {
             guardLog(restoring ? localize(@"已提交恢复内屏原状态的事务，将继续核对；外屏保持启用。", @"Built-in display restoration committed; verification will continue. External displays remain enabled.") :
                                localize(@"内置屏兜底启用事务已提交；保留原偏好，外屏回来后恢复。", @"Built-in display recovery committed. Previous preference is retained for reconnection."));
         }
     }
+}
+- (void)resumeRecovery {
+    self.systemSleeping = NO;
+    _state = newGuardState();
+    self.nextRestoreAttempt = 0;
+    self.memory.externalStableSince = -1;
+    guardLog(localize(@"唤醒或开盖：重新检查无外屏内屏恢复。", @"Wake or lid open: rechecking built-in recovery."));
+    [self check];
 }
 @end
 
@@ -1333,7 +1379,20 @@ static void powerChanged(void *context, io_service_t service, natural_t message,
     (void)service; (void)argument;
     if (message != kIOPMMessageClamshellStateChange) return;
     DisplayGuard *guard = (__bridge DisplayGuard *)context;
-    dispatch_async(dispatch_get_main_queue(), ^{ [guard check]; });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (lidState() == 0) [guard resumeRecovery]; else [guard check];
+    });
+}
+
+static void systemPowerChanged(void *context, io_service_t service, natural_t message, void *argument) {
+    (void)service;
+    DisplayGuard *guard = (__bridge DisplayGuard *)context;
+    if (message == kIOMessageCanSystemSleep || message == kIOMessageSystemWillSleep) {
+        if (message == kIOMessageSystemWillSleep) guard.systemSleeping = YES;
+        IOAllowPowerChange(guard.powerConnection, (long)argument);
+    } else if (message == kIOMessageSystemHasPoweredOn) {
+        [guard resumeRecovery];
+    }
 }
 
 static int watch(BOOL dryRun, BOOL once) {
@@ -1376,6 +1435,11 @@ static int watch(BOOL dryRun, BOOL once) {
     }
     DisplayGuard *guard = [DisplayGuard new];
     guard.dryRun = dryRun;
+    IONotificationPortRef systemPort = NULL;
+    io_object_t systemNotifier = 0;
+    guard.powerConnection = IORegisterForSystemPower((__bridge void *)guard, &systemPort, systemPowerChanged, &systemNotifier);
+    if (guard.powerConnection && systemPort)
+        IONotificationPortSetDispatchQueue(systemPort, dispatch_get_main_queue());
     CGError registered = CGDisplayRegisterReconfigurationCallback(displayChanged, (__bridge void *)guard);
     if (registered != kCGErrorSuccess)
         guardLog(localize(@"无法注册显示变化事件，将使用周期状态检查。", @"Unable to register display events. Periodic checks will be used."));
@@ -1404,6 +1468,12 @@ static int watch(BOOL dryRun, BOOL once) {
             CGDisplayRemoveReconfigurationCallback(displayChanged, (__bridge void *)guard);
             if (notifier) IOObjectRelease(notifier);
             if (notifications) IONotificationPortDestroy(notifications);
+            if (systemNotifier) {
+                io_object_t notifierToRemove = systemNotifier;
+                IODeregisterForSystemPower(&notifierToRemove);
+            }
+            if (guard.powerConnection) IOServiceClose(guard.powerConnection);
+            if (systemPort) IONotificationPortDestroy(systemPort);
             if (lock >= 0) close(lock);
             guardLog(localize(@"监控已停止。", @"Monitor stopped."));
             exit(0);
@@ -1432,10 +1502,12 @@ int main(int argc, const char *argv[]) {
             usage(); return 0;
         }
         NSString *action = @(argv[1]);
+        BOOL recoveryWorker = [action isEqual:@"--recover-builtin"] && argc == 2;
+        if (recoveryWorker) action = @"on";
         if (![@[@"list", @"on", @"off", @"toggle", @"watch", @"project"] containsObject:action]) {
             usage(); return 2;
         }
-        NSString *target = nil;
+        NSString *target = recoveryWorker ? @"builtin" : nil;
         NSNumber *externalID = nil;
         BOOL dryRun = NO, json = NO, allowAllOff = NO, once = NO;
         for (int i = 2; i < argc; i++) {
@@ -1472,6 +1544,22 @@ int main(int argc, const char *argv[]) {
         NSString *error = nil;
         NSArray *rows = discover(&error);
         if (!rows) { fail(error); return 1; }
+        if (recoveryWorker) {
+            GuardState state = newGuardState();
+            state.missingSince = 0;
+            NSString *reason = nil;
+            NSArray *changes = recoveryPlan(rows, lidState(), 2, &state, &reason);
+            if (!changes.count) { puts(reason.UTF8String); return 0; }
+            if (!saveRemembered(rows, &error) || !apply(changes, &error)) { fail(error); return 1; }
+            // Never change the user's saved external-connected preference here.
+            NSArray *verified = freshDisplaySnapshot(&error);
+            if (!verified) { fail(error); return 1; }
+            for (NSDictionary *change in changes)
+                if (!observedEnabled(observedDisplay(change[@"display"], verified))) {
+                    fail(localize(@"内屏恢复已提交，等待下一轮核对。", @"Built-in recovery submitted; waiting for the next verification.")); return 3;
+                }
+            puts("builtin-recovery-verified"); return 0;
+        }
         if ([action isEqual:@"list"]) {
             if (json) {
                 NSData *data = [NSJSONSerialization dataWithJSONObject:rows
