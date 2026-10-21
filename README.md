@@ -157,7 +157,7 @@ These paths are relative to the current user's home directory:
 | `~/Library/LaunchAgents/local.macDisplayCtl.guard.plist` | User launch agent |
 | `~/Library/Logs/macDisplayCtl-guard.log` | Monitor log |
 
-The executable, data directory, log, and launch agent use `macDisplayCtl`. The monitor is associated with the app for macOS background activity. Legacy `displayctl` data is not imported.
+The executable, data directory, log, and launch agent use `macDisplayCtl`. The monitor is associated with the app for macOS background activity.
 
 The display cache and preferences are valid for the current system boot. Preferences survive monitor restarts and updates, and are learned again after a system reboot. Display UUIDs are used when available to handle numeric ID changes.
 

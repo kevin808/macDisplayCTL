@@ -62,17 +62,6 @@ case "${1-status}" in
         /usr/bin/plutil -lint "$task_new_plist" >/dev/null
         mv "$task_new_plist" "$task_plist"
         plutil -lint "$task_plist" >/dev/null
-        # The pre-rename monitor uses a different lock and can undo a switch.
-        # Retire only our exact legacy service; retain its files for rollback.
-        task_legacy_service="$task_domain/local.displayctl.guard"
-        if [ -f "$HOME/Library/LaunchAgents/local.displayctl.guard.plist" ] ||
-           launchctl print "$task_legacy_service" >/dev/null 2>&1; then
-            launchctl disable "$task_legacy_service"
-            if launchctl print "$task_legacy_service" >/dev/null 2>&1; then
-                launchctl bootout "$task_legacy_service"
-            fi
-            "$task_support/macDisplayCtl" --wait-guard-lock "$HOME/Library/Application Support/displayctl/guard.lock"
-        fi
         if launchctl print "$task_service" >/dev/null 2>&1; then
             launchctl bootout "$task_service"
         fi

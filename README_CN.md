@@ -157,7 +157,7 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 | `~/Library/LaunchAgents/local.macDisplayCtl.guard.plist` | 用户级启动项 |
 | `~/Library/Logs/macDisplayCtl-guard.log` | 后台监控日志 |
 
-后台程序、数据目录、日志和启动项统一使用 `macDisplayCtl`，并关联到应用的 macOS 后台活动。旧版 `displayctl` 数据不会导入。
+后台程序、数据目录、日志和启动项统一使用 `macDisplayCtl`，并关联到应用的 macOS 后台活动。
 
 显示器缓存与状态记忆在本次系统启动期间有效。偏好可在监控重启或更新后继续衔接，系统重启后重新学习；能读取显示器 UUID 时，会用它对应显示器，以适应数字 ID 变化。
 

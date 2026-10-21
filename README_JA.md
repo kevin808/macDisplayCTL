@@ -155,7 +155,7 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 | `~/Library/LaunchAgents/local.macDisplayCtl.guard.plist` | ユーザー用 LaunchAgent |
 | `~/Library/Logs/macDisplayCtl-guard.log` | 監視ログ |
 
-実行ファイル、データディレクトリ、ログ、LaunchAgent は `macDisplayCtl` に統一し、macOS のバックグラウンド活動でアプリに関連付けます。旧版の `displayctl` データは取り込みません。
+実行ファイル、データディレクトリ、ログ、LaunchAgent は `macDisplayCtl` に統一し、macOS のバックグラウンド活動でアプリに関連付けます。
 
 キャッシュと記憶した設定は現在のシステム起動中に有効です。監視の再起動・更新後も設定を引き継ぎ、システム再起動後は再学習します。取得できる場合は UUID を使い、数値 ID が変わっても同じディスプレイを識別します。
 

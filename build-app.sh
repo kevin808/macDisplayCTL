@@ -2,6 +2,8 @@
 set -eu
 task_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 task_app="$task_dir/build/macDisplayCtl.app"
+# Recreate the generated bundle so removed resources cannot survive a rebuild.
+rm -rf "$task_app"
 mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources"
 task_module_cache="$task_dir/build/ModuleCache"
 mkdir -p "$task_module_cache"
@@ -28,9 +30,5 @@ cp "$task_dir/App/Info.plist" "$task_app/Contents/Info.plist"
 xcrun swift -module-cache-path "$task_module_cache" "$task_dir/App/MakeIcon.swift" "$task_dir/build/macDisplayCtl.iconset"
 cp "$task_dir/build/macDisplayCtl.icns" "$task_app/Contents/Resources/macDisplayCtl.icns"
 chmod +x "$task_app/Contents/Resources/macDisplayCtl-guard" "$task_app/Contents/Resources/macDisplayCtl"
-# Remove obsolete generated names when rebuilding an existing bundle.
-rm -f "$task_app/Contents/MacOS/ScreenSwitch" \
-    "$task_app/Contents/Resources/ScreenSwitch.icns" \
-    "$task_app/Contents/Resources/displayctl" "$task_app/Contents/Resources/guardctl"
 codesign --force --deep --sign - "$task_app"
 printf 'Built: %s\n' "$task_app"
