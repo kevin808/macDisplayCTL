@@ -370,6 +370,7 @@ struct PanelDragArea: NSViewRepresentable {
 struct ProjectionPanel: View {
     @ObservedObject var model: ScreenModel
     let onClose: () -> Void
+    private let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -383,6 +384,12 @@ struct ProjectionPanel: View {
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(.secondary.opacity(0.3)))
                 .help(L10n.text("Open the panel with Ctrl + Shift + P"))
+                if let version {
+                    Text("v\(version)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
                 Spacer(minLength: 4)
                 }
                 .frame(maxHeight: .infinity)
