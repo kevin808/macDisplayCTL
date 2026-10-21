@@ -354,19 +354,6 @@ struct AcrylicBackground: View {
     }
 }
 
-// Only the title region initiates dragging; mode buttons remain ordinary buttons.
-struct PanelDragArea: NSViewRepresentable {
-    final class DragView: NSView {
-        override func mouseDown(with event: NSEvent) {
-            guard let window else { return }
-            window.performDrag(with: event)
-            (window.delegate as? AppDelegate)?.rememberPanelPosition()
-        }
-    }
-    func makeNSView(context: Context) -> DragView { DragView() }
-    func updateNSView(_ nsView: DragView, context: Context) {}
-}
-
 struct ProjectionPanel: View {
     @ObservedObject var model: ScreenModel
     let onClose: () -> Void
@@ -374,7 +361,6 @@ struct ProjectionPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                HStack(spacing: 12) {
                 Text(L10n.text("Project")).font(.system(size: 25, weight: .medium))
                 HStack(spacing: 4) {
                     Text("⌃⇧").font(.system(size: 13))
@@ -391,9 +377,6 @@ struct ProjectionPanel: View {
                         .fixedSize()
                 }
                 Spacer(minLength: 4)
-                }
-                .frame(maxHeight: .infinity)
-                .overlay(PanelDragArea())
                 if model.busy { ProgressView().controlSize(.small) }
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -439,7 +422,7 @@ struct ProjectionPanel: View {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let displayChanged: CGDisplayReconfigurationCallBack = { _, flags, context in
         guard !flags.contains(.beginConfigurationFlag), let context else { return }
         let delegate = Unmanaged<AppDelegate>.fromOpaque(context).takeUnretainedValue()
@@ -475,8 +458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.isMovable = true
-        window.delegate = self
+        window.isMovable = false
         window.isReleasedWhenClosed = false
         window.backgroundColor = .clear
         window.isOpaque = false
@@ -596,23 +578,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if window.isVisible && NSApp.isActive { hidePanel() }
         else { showPanel() }
     }
-    private let panelPositionKey = "panelTopLeftPosition"
-    func rememberPanelPosition() {
-        guard !CommandLine.arguments.contains("--render-preview") else { return }
-        UserDefaults.standard.set(["x": window.frame.minX, "y": window.frame.maxY], forKey: panelPositionKey)
-    }
     private func positionPanel() {
-        if !CommandLine.arguments.contains("--render-preview"),
-           let saved = UserDefaults.standard.dictionary(forKey: panelPositionKey),
-           let x = saved["x"] as? Double, let y = saved["y"] as? Double,
-           x.isFinite, y.isFinite {
-            let frame = NSRect(x: x, y: y - window.frame.height,
-                               width: window.frame.width, height: window.frame.height)
-            if NSScreen.screens.contains(where: { $0.visibleFrame.contains(frame) }) {
-                window.setFrameTopLeftPoint(NSPoint(x: x, y: y))
-                return
-            }
-        }
         guard let screen = item?.button?.window?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let area = screen.visibleFrame
         let margin: CGFloat = 12
