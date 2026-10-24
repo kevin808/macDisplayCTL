@@ -97,6 +97,7 @@ jobs:
       APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_CERTIFICATE_PASSWORD }}
       KEYCHAIN_PASSWORD: ${{ secrets.APPLE_BUILD_KEYCHAIN_PASSWORD }}
+      KEYCHAIN_PATH: ${{ runner.temp }}/build.keychain-db
     steps:
       - uses: actions/checkout@v5
       - name: Import Developer ID certificate
@@ -112,14 +113,14 @@ jobs:
           test -n "$CERTIFICATE_PASSWORD"
           test -n "$KEYCHAIN_PASSWORD"
           printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > developer-id.p12
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain-db
-          security set-keychain-settings -lut 21600 build.keychain-db
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain-db
-          security import developer-id.p12 -k build.keychain-db -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain-db
-          security list-keychains -d user -s build.keychain-db login.keychain-db
-          security default-keychain -s build.keychain-db
-          security find-identity -v -p codesigning build.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import developer-id.p12 -k "$KEYCHAIN_PATH" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
       - name: Build Universal app
         run: ARCHS="arm64 x86_64" ./build-app.sh
       - name: Test
@@ -141,14 +142,14 @@ jobs:
             --apple-id "$APPLE_ID" \
             --team-id "$TEAM_ID" \
             --password "$APP_SPECIFIC_PASSWORD" \
-            --keychain build.keychain-db
+            --keychain "$KEYCHAIN_PATH"
       - name: Submit for notarization
         run: |
           mkdir -p dist
           ditto -c -k --sequesterRsrc --keepParent build/macDisplayCtl.app dist/macDisplayCtl-signed.zip
           xcrun notarytool submit dist/macDisplayCtl-signed.zip \
             --keychain-profile macDisplayCtl-notary \
-            --keychain build.keychain-db \
+            --keychain "$KEYCHAIN_PATH" \
             --wait
       - name: Staple and validate notarization
         run: |
@@ -176,5 +177,5 @@ jobs:
       - name: Remove temporary key material
         if: always()
         run: |
-          security delete-keychain build.keychain-db || true
+          security delete-keychain "$KEYCHAIN_PATH" || true
           rm -f developer-id.p12
