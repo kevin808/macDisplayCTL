@@ -45,7 +45,21 @@ Download the [Universal app for Apple Silicon and Intel](https://github.com/kevi
 
 The app uses ad-hoc signing and is not notarized. If blocked by macOS, allow it in **System Settings > Privacy & Security**. Background recovery works without installing Python or developer tools.
 
-GitHub Actions builds and tests every pull request and push to `main`. Successful `main` builds update the downloadable development release; pushing a `v*` tag publishes a versioned release. Downloads include `SHA256SUMS.txt` for verification.
+GitHub Actions builds and tests every pull request and push to `main`. Successful `main` builds update the downloadable development release; pushing a `v*` tag uses Developer ID signing, Apple notarization, and publishes a versioned release. Downloads include `SHA256SUMS.txt` for verification.
+
+## Automated signing and notarization
+
+The tag workflow reads these GitHub Actions Secrets and never stores certificates or passwords in the repository:
+
+- `APPLE_DEVELOPER_IDENTITY`: for example `Developer ID Application: Haoran Li (J66B7Z8VB8)`.
+- `APPLE_TEAM_ID`: `J66B7Z8VB8`.
+- `APPLE_DEVELOPER_CERTIFICATE_BASE64`: the output of `base64 -i certificate.p12` for a `.p12` containing the Developer ID Application certificate.
+- `APPLE_DEVELOPER_CERTIFICATE_PASSWORD`: the password used when exporting the `.p12`.
+- `APPLE_BUILD_KEYCHAIN_PASSWORD`: a random password for the temporary Actions keychain.
+- `APPLE_ID`: the Apple Developer account email.
+- `APPLE_APP_SPECIFIC_PASSWORD`: an Apple app-specific password.
+
+After configuring the secrets, push a version tag such as `git tag v1.0.3 && git push origin v1.0.3`. The workflow builds an arm64/x86_64 Universal app, imports the temporary keychain, signs the app and bundled helper, submits notarization, staples the ticket, runs Gatekeeper checks, and creates the GitHub Release. PR and `main` builds do not read signing secrets and produce development artifacts.
 
 ## Build from source
 

@@ -45,7 +45,21 @@ macDisplayCtl 是一个 macOS 显示器管理工具，提供原生 SwiftUI/AppKi
 
 应用使用 ad-hoc 签名，尚未进行 Apple 公证。若 macOS 阻止打开，请在**系统设置 > 隐私与安全性**中允许打开。后台自动恢复无需安装 Python 或开发工具。
 
-GitHub Actions 会在 PR 和推送到 `main` 时自动构建并测试；`main` 构建成功后更新开发版下载，推送 `v*` 标签时发布对应版本。下载页面同时提供 `SHA256SUMS.txt` 校验文件。
+GitHub Actions 会在 PR 和推送到 `main` 时自动构建并测试；`main` 构建成功后更新开发版下载，推送 `v*` 标签时使用 Developer ID 签名、提交 Apple 公证并发布对应版本。下载页面同时提供 `SHA256SUMS.txt` 校验文件。
+
+## 配置 GitHub 自动签名与公证
+
+版本标签工作流读取以下 GitHub Actions Secrets，不把证书或密码写进仓库：
+
+- `APPLE_DEVELOPER_IDENTITY`：例如 `Developer ID Application: Haoran Li (J66B7Z8VB8)`。
+- `APPLE_TEAM_ID`：`J66B7Z8VB8`。
+- `APPLE_DEVELOPER_CERTIFICATE_BASE64`：从包含 Developer ID Application 证书的 `.p12` 文件运行 `base64 -i certificate.p12` 得到的内容。
+- `APPLE_DEVELOPER_CERTIFICATE_PASSWORD`：导出 `.p12` 时设置的密码。
+- `APPLE_BUILD_KEYCHAIN_PASSWORD`：Actions 临时钥匙串密码，随机生成即可。
+- `APPLE_ID`：Apple Developer 账户邮箱。
+- `APPLE_APP_SPECIFIC_PASSWORD`：Apple 账户生成的 App 专用密码。
+
+配置完成后推送版本标签，例如 `git tag v1.0.3 && git push origin v1.0.3`。工作流会构建 arm64/x86_64 通用版，导入临时钥匙串，签名 app 和内置 helper，提交公证，附加票据，运行 Gatekeeper 检查，再创建 GitHub Release。PR 和 `main` 构建不读取签名 Secrets，只生成开发版构建。
 
 ## 从源码构建
 
