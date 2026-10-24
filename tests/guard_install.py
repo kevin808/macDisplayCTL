@@ -60,6 +60,7 @@ with tempfile.TemporaryDirectory(prefix='macDisplayCtl-guard-') as directory:
     assert data['StandardOutPath'] == data['StandardErrorPath'] == str(home / 'Library/Logs/macDisplayCtl-guard.log')
     assert plist.stat().st_mode & 0o777 == 0o600
     assert 'bootstrap gui/' in calls.read_text()
+    assert all('local.macDisplayCtl.guard' in line for line in calls.read_text().splitlines()), 'Installer must only manage the current service'
     subprocess.run(['/bin/sh', str(script), 'start'], env=env, check=True, capture_output=True)
     assert Path(str(plist) + '.backup').exists()
 print('Native lock release/timeout/errors and Python-free installer with escaped paths passed.')

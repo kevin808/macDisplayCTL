@@ -74,9 +74,9 @@ open "build/macDisplayCtl.app"
 
 命令行入口 `./macDisplayCtl` 会在首次使用时自动编译，并在 `macDisplayCtl.m` 更新后重新构建。也可以双击 [`macDisplayCtl.command`](macDisplayCtl.command)，通过跟随系统语言的交互菜单操作。
 
-## 应用使用
+## 应用使用方法
 
-面板首次打开时位于右上方。拖动顶部标题区域可移动面板，位置会在下次打开及重启应用后保留。如果显示器或分辨率变化导致原位置无法完整显示窗口，面板会自动回到右上方。方法
+面板每次打开都固定在菜单栏图标所在屏幕的右上方，距可用区域边缘 12 点。窗口不可拖动，显示器配置变化后会自动调整位置。
 
 应用默认不显示 Dock（程序坞）图标。左键点击菜单栏图标，可选择“显示主界面”、“仅电脑屏幕”、“扩展”、“复制”、“仅扩展屏幕”或“退出”；右键不再显示菜单。按 **Ctrl + Shift + P** 打开/收起面板。面板打开时，按 `1`、`2`、`3`、`4` 选择对应模式。
 
@@ -171,7 +171,7 @@ MACDISPLAYCTL_LANGUAGE=zh-Hans ./macDisplayCtl --help
 | `~/Library/LaunchAgents/local.macDisplayCtl.guard.plist` | 用户级启动项 |
 | `~/Library/Logs/macDisplayCtl-guard.log` | 后台监控日志 |
 
-后台程序、数据目录、日志和启动项统一使用 `macDisplayCtl`，并关联到应用的 macOS 后台活动。旧版 `displayctl` 数据不会导入。
+后台程序、数据目录、日志和启动项统一使用 `macDisplayCtl`，并关联到应用的 macOS 后台活动。
 
 显示器缓存与状态记忆在本次系统启动期间有效。偏好可在监控重启或更新后继续衔接，系统重启后重新学习；能读取显示器 UUID 时，会用它对应显示器，以适应数字 ID 变化。
 
