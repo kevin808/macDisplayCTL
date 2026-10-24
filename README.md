@@ -131,7 +131,7 @@ Exit codes: `0` means success, no change needed, or a successful preview; `1` me
 ./macDisplayCtl watch --dry-run --once        # Inspect displays, lid, and recovery decisions
 ```
 
-When the last usable non-virtual display disappears and the built-in display is disabled, the monitor waits for that state to persist for at least one second before temporarily enabling the built-in display. Recovery requires an open lid; a closed or unknown lid state defers recovery.
+When the last usable non-virtual display disappears and the built-in display is disabled, the monitor waits for that state to persist for about 300ms before temporarily enabling the built-in display. Recovery requires an open lid; a closed or unknown lid state defers recovery.
 
 The no-external-display fallback is enabled by default. Wake and lid-open events clear the previous retry cooldown and refresh physical connection state. If the lid is open, all physical external displays are confirmed disconnected, and the built-in display is still disabled, recovery can proceed despite stale display-sleep flags. A short-lived helper performs the recovery and verifies its result with a fresh WindowServer connection. Closed/unknown lid or unknown connection state does not bypass sleep protection. An already-enabled display in normal standby is not repeatedly awakened. Recovery runs after macOS wakes; the monitor cannot run while the computer is actually asleep.
 
@@ -139,7 +139,7 @@ After a physical external display reconnects and remains stable for at least two
 
 The initial preference is learned while an external display is connected. Later choices are observed while an external display is connected and the lid is open. Temporary recovery does not overwrite that preference. To explicitly keep the built-in display enabled after reconnection, run `./macDisplayCtl on builtin` while disconnected, even if it is already enabled. Changes made through other apps during disconnection cannot reliably be distinguished from automatic system recovery.
 
-The monitor listens for display and lid events and checks every five seconds. Fallback retries are at least ten seconds apart, with a sixty-second cooldown after every three attempts. Reconnection restoration retries are at least ten seconds apart. After a long sleep, it waits for stability again. Display changes and the monitor share an operation lock.
+The monitor listens for display, sleep/wake, and lid events and checks every five seconds. No-external recovery retries after 200ms, 500ms, and 1s, then enters a fifteen-second cooldown after three failures. Ordinary recovery keeps the longer retry interval. Reconnection restoration retries are at least ten seconds apart. After a long sleep, it waits for stability again. Display changes and the monitor share an operation lock.
 
 No `sudo` or system-wide launch agent is required. After updating the source, run `./macDisplayCtl guard start` to update the installed monitor. Installation keeps `.backup` copies of the previous executable and launch agent configuration.
 

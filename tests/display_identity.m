@@ -78,8 +78,8 @@ int main(void) {
         reconnectAssert(!needsNoExternalRecovery(sleepUnplug, 1), @"closed lid never forced on", &checks);
         reconnectAssert(!needsNoExternalRecovery(sleepUnplug, -1), @"unknown lid not forced on", &checks);
         GuardState state = newGuardState(); NSString *reason = nil;
-        reconnectAssert(recoveryPlan(sleepUnplug, 0, 10, &state, &reason).count == 0, @"unplug recovery has stability delay", &checks);
-        NSArray *recover = recoveryPlan(sleepUnplug, 0, 11, &state, &reason);
+        reconnectAssert(recoveryPlan(sleepUnplug, 0, 10, &state, &reason).count == 0, @"unplug recovery has fast stability delay", &checks);
+        NSArray *recover = recoveryPlan(sleepUnplug, 0, 10.31, &state, &reason);
         reconnectAssert(recover.count == 1 && [recover[0][@"display"][@"id"] isEqual:@1] &&
                         [recover[0][@"enabled"] boolValue], @"sleep-unplug recovery enables only internal", &checks);
         sleepingExternal[@"connected"] = @YES;
@@ -93,6 +93,13 @@ int main(void) {
         disabledInternal[@"enabled"] = @NO; disabledInternal[@"online"] = @NO; disabledInternal[@"asleep"] = @NO;
         reconnectAssert(needsNoExternalRecovery(@[disabledInternal], 0), @"no external records still permits internal rescue", &checks);
         reconnectAssert(!needsNoExternalRecovery(@[], 0), @"no known internal never guesses an ID", &checks);
+        state = newGuardState();
+        recoveryAttemptedWithPolicy(&state, 20, YES);
+        reconnectAssert(state.nextAttempt == 20.2, @"fast retry starts at 200ms", &checks);
+        recoveryAttemptedWithPolicy(&state, 20.2, YES);
+        reconnectAssert(state.nextAttempt == 20.7, @"fast retry backs off to 500ms", &checks);
+        recoveryAttemptedWithPolicy(&state, 20.7, YES);
+        reconnectAssert(state.nextAttempt == 35.7, @"third fast failure enters short cooldown", &checks);
         printf("%u display identity, sleep-unplug recovery and projection regressions passed.\n", checks);
         return 0;
     }

@@ -499,20 +499,29 @@ static NSArray *recoveryPlan(NSArray *rows, int lid, double now,
         *reason = @"no-known-builtin";
     } else {
         if (state->missingSince < 0) state->missingSince = now;
-        if (now - state->missingSince < 1) *reason = @"waiting-for-stability";
+        double grace = needsNoExternalRecovery(rows, lid) ? 0.3 : 1.0;
+        if (now - state->missingSince < grace)
+            *reason = grace < 1 ? @"waiting-for-fast-recovery" : @"waiting-for-stability";
         else if (now < state->nextAttempt) *reason = @"retry-cooldown";
         else { *reason = @"recover-builtin"; return changes; }
     }
     return @[];
 }
 
-static void recoveryAttempted(GuardState *state, double now) {
+static void recoveryAttemptedWithPolicy(GuardState *state, double now, BOOL fast) {
     state->attempts++;
     // Avoid a rapid fight with another display manager or an unsupported panel.
     if (state->attempts >= 3) {
         state->attempts = 0;
-        state->nextAttempt = now + 60;
+        state->nextAttempt = now + (fast ? 15 : 60);
+    } else if (fast) {
+        static const double delays[] = {0.2, 0.5, 1.0};
+        state->nextAttempt = now + delays[state->attempts - 1];
     } else state->nextAttempt = now + 10;
+}
+
+static void recoveryAttempted(GuardState *state, double now) {
+    recoveryAttemptedWithPolicy(state, now, NO);
 }
 
 static void guardLog(NSString *message) {
@@ -1237,6 +1246,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
 @property double nextRestoreAttempt;
 @property BOOL systemSleeping;
 @property io_connect_t powerConnection;
+@property BOOL resumeScheduled;
 - (void)check;
 - (void)checkUnlocked;
 - (void)resumeRecovery;
@@ -1318,9 +1328,12 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
             self.lastReason = reason;
         }
         if (([reason isEqual:@"waiting-for-stability"] ||
+             [reason isEqual:@"waiting-for-fast-recovery"] ||
              [reason isEqual:@"waiting-for-external-stability"]) && !self.pendingCheck) {
             self.pendingCheck = YES;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
+                                           [reason isEqual:@"waiting-for-fast-recovery"] ? (int64_t)(0.35 * NSEC_PER_SEC) : NSEC_PER_SEC),
+                           dispatch_get_main_queue(), ^{
                 self.pendingCheck = NO;
                 [self check];
             });
@@ -1340,7 +1353,7 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
         }
         if (!changes.count) return;
         if (restoring) self.nextRestoreAttempt = now + 10;
-        else recoveryAttempted(&_state, now);
+        else recoveryAttemptedWithPolicy(&_state, now, needsNoExternalRecovery(fresh, lidState()));
         if (self.dryRun) {
             guardLog(restoring ? localize(@"预览：外屏已稳定，将恢复内屏之前的状态。", @"Preview: external display is stable; restore the previous built-in display state.") :
                                localize(@"预览：没有可用实体屏且已开盖，将只启用内置屏。", @"Preview: no usable physical display and the lid is open; enable only the built-in display."));
@@ -1359,12 +1372,18 @@ static int project(NSArray *initialRows, NSString *mode, NSNumber *externalID, B
     }
 }
 - (void)resumeRecovery {
+    if (self.resumeScheduled) return;
+    self.resumeScheduled = YES;
     self.systemSleeping = NO;
     _state = newGuardState();
     self.nextRestoreAttempt = 0;
     self.memory.externalStableSince = -1;
     guardLog(localize(@"唤醒或开盖：重新检查无外屏内屏恢复。", @"Wake or lid open: rechecking built-in recovery."));
-    [self check];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        self.resumeScheduled = NO;
+        [self check];
+    });
 }
 @end
 
@@ -1655,8 +1674,8 @@ int main(void) {
         NSArray *disabled = @[fixture(1, YES, NO, NO)];
         NSCAssert(recoveryPlan(dual, 0, 100, &state, &reason).count == 0, @"external prevents recovery");
         NSCAssert(recoveryPlan(disabled, 0, 101, &state, &reason).count == 0, @"unplug grace period");
-        NSCAssert(recoveryPlan(disabled, 0, 101.5, &state, &reason).count == 0, @"wait one full second");
-        NSArray *recovery = recoveryPlan(disabled, 0, 102, &state, &reason);
+        NSCAssert(recoveryPlan(disabled, 0, 101.2, &state, &reason).count == 0, @"fast recovery grace period");
+        NSArray *recovery = recoveryPlan(disabled, 0, 101.31, &state, &reason);
         NSCAssert(recovery.count == 1 && [recovery[0][@"enabled"] boolValue] &&
                   [recovery[0][@"display"][@"builtin"] boolValue], @"recover only builtin");
         recoveryAttempted(&state, 102);
